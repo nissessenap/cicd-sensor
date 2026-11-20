@@ -30,6 +30,10 @@ func (l *Listener) handleGitHubHostStart(w http.ResponseWriter, r *http.Request)
 		l.writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := req.Metadata.Validate(); err != nil {
+		l.writeError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
 	metadata := req.Metadata
 	rootPID, err := requestPeerPID(r.Context())
 	if err != nil {
@@ -65,6 +69,10 @@ func (l *Listener) handleGitHubK8sStart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := identity.Validate(); err != nil {
+		l.writeError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := req.Metadata.Validate(); err != nil {
 		l.writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -106,6 +114,10 @@ func (l *Listener) handleGitHubProjectStart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := identity.Validate(); err != nil {
+		l.writeError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := req.Metadata.Validate(); err != nil {
 		l.writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}

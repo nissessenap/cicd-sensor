@@ -31,6 +31,7 @@ func ToLogContext(identity jobcontext.JobIdentity, metadata jobcontext.JobMetada
 		out.GithubWorkflowRef = metadata.GitHubWorkflowRef
 		out.GithubWorkflowSha = metadata.GitHubWorkflowSHA
 		out.GithubWorkflow = metadata.GitHubWorkflow
+		out.GithubCheckRunId = metadata.GitHubCheckRunID
 	case jobcontext.ProviderGitLab:
 		out.GitlabJobId = identity.GitLabJobID
 		out.GitlabJobName = metadata.GitLabJobName

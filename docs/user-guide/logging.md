@@ -55,6 +55,7 @@ Other fields add useful context for search, reports, and triage.
 | `github_workflow_ref` | GitHub Actions workflow file ref |
 | `github_workflow_sha` | GitHub Actions workflow file commit SHA |
 | `github_workflow` | GitHub Actions workflow name |
+| `github_check_run_id` | GitHub check run ID of the job (`job.check_run_id`). It equals the job `id` in GitHub's REST API and `workflow_job` webhook, and it is unique per job, including matrix legs. Present only when the job was started through the GitHub Action on github.com; absent for runner-hook starts and GitHub Enterprise Server |
 | `gitlab_job_id` | GitLab CI job execution ID |
 | `gitlab_job_name` | GitLab CI job name |
 | `gitlab_config_ref_uri` | GitLab CI config provenance URI |

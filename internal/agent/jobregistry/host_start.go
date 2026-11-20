@@ -107,6 +107,7 @@ func (jr *JobRegistry) ApplyGitLabHostStart(ctx context.Context, identity jobcon
 // buildHostScopeFromManagerConfig builds a resolved host scope from manager config.
 func (jr *JobRegistry) buildHostScopeFromManagerConfig(ctx context.Context, identity jobcontext.JobIdentity, metadata jobcontext.JobMetadata, runnerType string, hostManagerConnection managerclient.Connection, hostManagerClient ManagerConfigFetcher) (*jobscope.JobScopeState, error) {
 	hostScope := jobscope.NewHost()
+	hostScope.GitHubCheckRunID = metadata.GitHubCheckRunID
 	managerConfig, err := jr.fetchManagerConfig(ctx, identity, metadata, runnerType, hostManagerClient, "manager_config_fetched")
 	if err != nil {
 		return nil, err

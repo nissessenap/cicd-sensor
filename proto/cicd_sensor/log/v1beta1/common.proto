@@ -21,6 +21,10 @@ message LogContext {
   string github_workflow_ref = 14 [json_name = "github_workflow_ref"];
   string github_workflow_sha = 15 [json_name = "github_workflow_sha"];
   string github_workflow = 16 [json_name = "github_workflow"];
+  // Check run ID of the job. Equals the job `id` in GitHub's REST API and
+  // `workflow_job` webhook, so it joins records to the provider's job list.
+  // Empty when the start request could not supply it.
+  string github_check_run_id = 20 [json_name = "github_check_run_id"];
 
   // GitLab only.
   string gitlab_job_id = 17 [json_name = "gitlab_job_id"];

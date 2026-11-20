@@ -197,6 +197,7 @@ func TestBuildProjectStartRequest_IncludesNestedMetadata(t *testing.T) {
 		GitHubWorkflowRef: "acme/example/.github/workflows/build.yml@refs/heads/main",
 		GitHubWorkflowSHA: "def456",
 		GitHubWorkflow:    "build",
+		GitHubCheckRunID:  "88812345678",
 	}, "", "", managerConnectionConfig{}, false)
 	if err != nil {
 		t.Fatalf("buildProjectStartRequest: %v", err)
@@ -214,6 +215,7 @@ func TestBuildProjectStartRequest_IncludesNestedMetadata(t *testing.T) {
 		"github_workflow_ref": "acme/example/.github/workflows/build.yml@refs/heads/main",
 		"github_workflow_sha": "def456",
 		"github_workflow":     "build",
+		"github_check_run_id": "88812345678",
 	}
 	for key, wantValue := range want {
 		if metadata[key] != wantValue {

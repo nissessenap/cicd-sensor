@@ -40,6 +40,10 @@ type LogContext struct {
 	GithubWorkflowRef      string `protobuf:"bytes,14,opt,name=github_workflow_ref,proto3" json:"github_workflow_ref,omitempty"`
 	GithubWorkflowSha      string `protobuf:"bytes,15,opt,name=github_workflow_sha,proto3" json:"github_workflow_sha,omitempty"`
 	GithubWorkflow         string `protobuf:"bytes,16,opt,name=github_workflow,proto3" json:"github_workflow,omitempty"`
+	// Check run ID of the job. Equals the job `id` in GitHub's REST API and
+	// `workflow_job` webhook, so it joins records to the provider's job list.
+	// Empty when the start request could not supply it.
+	GithubCheckRunId string `protobuf:"bytes,20,opt,name=github_check_run_id,proto3" json:"github_check_run_id,omitempty"`
 	// GitLab only.
 	GitlabJobId        string `protobuf:"bytes,17,opt,name=gitlab_job_id,proto3" json:"gitlab_job_id,omitempty"`
 	GitlabJobName      string `protobuf:"bytes,18,opt,name=gitlab_job_name,proto3" json:"gitlab_job_name,omitempty"`
@@ -186,6 +190,13 @@ func (x *LogContext) GetGithubWorkflowSha() string {
 func (x *LogContext) GetGithubWorkflow() string {
 	if x != nil {
 		return x.GithubWorkflow
+	}
+	return ""
+}
+
+func (x *LogContext) GetGithubCheckRunId() string {
+	if x != nil {
+		return x.GithubCheckRunId
 	}
 	return ""
 }
@@ -1072,7 +1083,7 @@ var File_cicd_sensor_log_v1beta1_common_proto protoreflect.FileDescriptor
 
 const file_cicd_sensor_log_v1beta1_common_proto_rawDesc = "" +
 	"\n" +
-	"$cicd_sensor/log/v1beta1/common.proto\x12\x17cicd_sensor.log.v1beta1\"\xe8\x05\n" +
+	"$cicd_sensor/log/v1beta1/common.proto\x12\x17cicd_sensor.log.v1beta1\"\x9a\x06\n" +
 	"\n" +
 	"LogContext\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12$\n" +
@@ -1097,7 +1108,8 @@ const file_cicd_sensor_log_v1beta1_common_proto_rawDesc = "" +
 	"\x19github_runner_tracking_id\x18\r \x01(\tR\x19github_runner_tracking_id\x120\n" +
 	"\x13github_workflow_ref\x18\x0e \x01(\tR\x13github_workflow_ref\x120\n" +
 	"\x13github_workflow_sha\x18\x0f \x01(\tR\x13github_workflow_sha\x12(\n" +
-	"\x0fgithub_workflow\x18\x10 \x01(\tR\x0fgithub_workflow\x12$\n" +
+	"\x0fgithub_workflow\x18\x10 \x01(\tR\x0fgithub_workflow\x120\n" +
+	"\x13github_check_run_id\x18\x14 \x01(\tR\x13github_check_run_id\x12$\n" +
 	"\rgitlab_job_id\x18\x11 \x01(\tR\rgitlab_job_id\x12(\n" +
 	"\x0fgitlab_job_name\x18\x12 \x01(\tR\x0fgitlab_job_name\x124\n" +
 	"\x15gitlab_config_ref_uri\x18\x13 \x01(\tR\x15gitlab_config_ref_uri\"\x8c\a\n" +

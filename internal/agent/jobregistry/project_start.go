@@ -127,6 +127,7 @@ func (jr *JobRegistry) attachDebugOutput(ctx context.Context, scope *jobscope.Jo
 // buildProjectScopeFromManagerConfig builds a resolved project scope from manager config.
 func (jr *JobRegistry) buildProjectScopeFromManagerConfig(ctx context.Context, identity jobcontext.JobIdentity, metadata jobcontext.JobMetadata, runnerType string, projectManagerConnection managerclient.Connection, projectManagerClient ManagerConfigFetcher) (*jobscope.JobScopeState, error) {
 	projectScope := jobscope.NewProject()
+	projectScope.GitHubCheckRunID = metadata.GitHubCheckRunID
 	managerConfig, err := jr.fetchManagerConfig(ctx, identity, metadata, runnerType, projectManagerClient, "project_manager_config_fetched")
 	if err != nil {
 		return nil, err
@@ -142,6 +143,7 @@ func (jr *JobRegistry) buildProjectScopeFromManagerConfig(ctx context.Context, i
 // buildProjectScopeFromLocalConfig builds a resolved project scope from project-local config.
 func (jr *JobRegistry) buildProjectScopeFromLocalConfig(ctx context.Context, identity jobcontext.JobIdentity, cfg GitHubProjectStartConfig) (*jobscope.JobScopeState, error) {
 	projectScope := jobscope.NewProject()
+	projectScope.GitHubCheckRunID = cfg.Metadata.GitHubCheckRunID
 	if !cfg.DisableBaselineRules {
 		baselineSource, err := jr.loadBaselineRules(ctx, identity)
 		if err != nil {

@@ -29,7 +29,7 @@ func (s *JobScopeState) EmitSummaryLog(ctx context.Context, in SummaryLogInputs,
 	payload, err := joblogs.MarshalSummaryLogEntry(joblogs.SummaryLogInput{
 		ScopeLogContext: joblogs.ScopeLogContext{
 			Identity:       in.Identity,
-			Metadata:       in.Metadata,
+			Metadata:       s.logMetadata(in.Metadata),
 			RunnerType:     in.RunnerType,
 			Scope:          s.Type,
 			ConfigRevision: s.ConfigRevision,
@@ -45,6 +45,15 @@ func (s *JobScopeState) EmitSummaryLog(ctx context.Context, in SummaryLogInputs,
 		return err
 	}
 	return s.managerJobLogs.EmitAndCloseSummaryLog(ctx, payload)
+}
+
+// logMetadata fills the check run ID this scope was started with when the
+// Job's own metadata lacks it.
+func (s *JobScopeState) logMetadata(metadata jobcontext.JobMetadata) jobcontext.JobMetadata {
+	if metadata.GitHubCheckRunID == "" {
+		metadata.GitHubCheckRunID = s.GitHubCheckRunID
+	}
+	return metadata
 }
 
 // CloseOIDCCredential cancels shared OIDC mint work. Finalize defers
@@ -112,7 +121,7 @@ func (s *JobScopeState) writeDetectionLog(ctx context.Context, identity jobconte
 	payload, err := joblogs.MarshalDetectionLogEntry(joblogs.DetectionLogInput{
 		ScopeLogContext: joblogs.ScopeLogContext{
 			Identity:   identity,
-			Metadata:   metadata,
+			Metadata:   s.logMetadata(metadata),
 			RunnerType: runnerType,
 			Scope:      s.Type,
 		},
@@ -161,7 +170,7 @@ func (s *JobScopeState) WriteRuntimeEventLog(ctx context.Context, identity jobco
 	payload, err := joblogs.MarshalRuntimeEventLogEntry(joblogs.RuntimeEventLogInput{
 		ScopeLogContext: joblogs.ScopeLogContext{
 			Identity:   identity,
-			Metadata:   metadata,
+			Metadata:   s.logMetadata(metadata),
 			RunnerType: runnerType,
 			Scope:      s.Type,
 		},
@@ -191,7 +200,7 @@ func (s *JobScopeState) WriteRuntimeEventLog(ctx context.Context, identity jobco
 		debugPayload, err := joblogs.MarshalRuntimeEventLogEntry(joblogs.RuntimeEventLogInput{
 			ScopeLogContext: joblogs.ScopeLogContext{
 				Identity:   identity,
-				Metadata:   metadata,
+				Metadata:   s.logMetadata(metadata),
 				RunnerType: runnerType,
 				Scope:      s.Type,
 			},

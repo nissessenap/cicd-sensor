@@ -57,6 +57,7 @@ func TestJobMetadataFlagsUseLogContextNames(t *testing.T) {
 		"--github-workflow-ref", "acme/example/.github/workflows/build.yml@refs/heads/main",
 		"--github-workflow-sha", "def456",
 		"--github-workflow", "build",
+		"--github-check-run-id", "88812345678",
 		"--gitlab-job-name", "test",
 		"--gitlab-config-ref-uri", "gitlab.com/acme/example//.gitlab-ci.yml@refs/heads/main",
 	}
@@ -73,6 +74,7 @@ func TestJobMetadataFlagsUseLogContextNames(t *testing.T) {
 		GitHubWorkflowRef:  "acme/example/.github/workflows/build.yml@refs/heads/main",
 		GitHubWorkflowSHA:  "def456",
 		GitHubWorkflow:     "build",
+		GitHubCheckRunID:   "88812345678",
 		GitLabJobName:      "test",
 		GitLabConfigRefURI: "gitlab.com/acme/example//.gitlab-ci.yml@refs/heads/main",
 	}
