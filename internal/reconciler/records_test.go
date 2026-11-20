@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
 )
 
 type recordingSensorRecordStore struct {
@@ -47,13 +49,11 @@ func TestRecordHandler_HandleRecord(t *testing.T) {
 	t.Parallel()
 
 	wantKey := JobKey{ProviderHost: "github.com", Repository: "acme/example", CheckRunID: 136504227286}
-	summaryBody := []byte(`{"log_type":"cicd_sensor.summary","result":"detected","finalize_reason":"cgroup_rmdir","job":{"provider":"github","project_path":"victim/repo","github_check_run_id":"999"},"field_added_later":true}`)
 	storeErr := errors.New("postgres down")
 
 	cases := []struct {
 		name           string
 		attrs          map[string]string
-		body           []byte
 		store          *recordingSensorRecordStore
 		wantErr        error
 		want           *SensorRecord
@@ -62,34 +62,18 @@ func TestRecordHandler_HandleRecord(t *testing.T) {
 		wantLate       uint64
 	}{
 		{
-			name:  "job_start is recorded from attributes alone",
+			name:  "job_start is recorded from the message attributes",
 			attrs: recordAttrs("job_start", nil),
-			body:  []byte(`{"log_type":"cicd_sensor.job_start"}`),
-			want:  &SensorRecord{JobKey: wantKey, Kind: RecordJobStart, RunID: 44798508261, RunAttempt: 1},
+			want:  &SensorRecord{JobKey: wantKey, Kind: logtype.JobStart, RunID: 44798508261, RunAttempt: 1},
 		},
 		{
-			name:  "job_start with an unreadable body still counts: the body is never needed",
-			attrs: recordAttrs("job_start", nil),
-			body:  []byte("{not json"),
-			want:  &SensorRecord{JobKey: wantKey, Kind: RecordJobStart, RunID: 44798508261, RunAttempt: 1},
-		},
-		{
-			name:  "summary takes identity from bound attributes, not from the job-controlled body",
+			name:  "summary is recorded from the message attributes",
 			attrs: recordAttrs("summary", nil),
-			body:  summaryBody,
-			want:  &SensorRecord{JobKey: wantKey, Kind: RecordSummary, RunID: 44798508261, RunAttempt: 1, SummaryResult: "detected", FinalizeReason: "cgroup_rmdir"},
-		},
-		{
-			name:        "summary with an undecodable body still proves the sensor finalized",
-			attrs:       recordAttrs("summary", nil),
-			body:        []byte("{not json"),
-			want:        &SensorRecord{JobKey: wantKey, Kind: RecordSummary, RunID: 44798508261, RunAttempt: 1},
-			wantInvalid: 1,
+			want:  &SensorRecord{JobKey: wantKey, Kind: logtype.Summary, RunID: 44798508261, RunAttempt: 1},
 		},
 		{
 			name:  "detection records are not the reconciler's business",
 			attrs: recordAttrs("detection", nil),
-			body:  []byte(`{}`),
 		},
 		{
 			name:  "runtime events are ignored without being counted",
@@ -119,7 +103,6 @@ func TestRecordHandler_HandleRecord(t *testing.T) {
 		{
 			name:           "record from a manager that predates identity attributes is unjoinable",
 			attrs:          map[string]string{"log_type": "summary", "scope": "project"},
-			body:           summaryBody,
 			wantUnjoinable: 1,
 		},
 		{
@@ -148,14 +131,13 @@ func TestRecordHandler_HandleRecord(t *testing.T) {
 				a["github_run_id"] = "not-a-number"
 				a["github_run_attempt"] = "99999999999"
 			}),
-			want: &SensorRecord{JobKey: wantKey, Kind: RecordJobStart},
+			want: &SensorRecord{JobKey: wantKey, Kind: logtype.JobStart},
 		},
 		{
 			name:     "record arriving after the verdict is stored and counted as late",
 			attrs:    recordAttrs("summary", nil),
-			body:     summaryBody,
 			store:    &recordingSensorRecordStore{afterVerdict: true},
-			want:     &SensorRecord{JobKey: wantKey, Kind: RecordSummary, RunID: 44798508261, RunAttempt: 1, SummaryResult: "detected", FinalizeReason: "cgroup_rmdir"},
+			want:     &SensorRecord{JobKey: wantKey, Kind: logtype.Summary, RunID: 44798508261, RunAttempt: 1},
 			wantLate: 1,
 		},
 		{
@@ -173,9 +155,9 @@ func TestRecordHandler_HandleRecord(t *testing.T) {
 				store = &recordingSensorRecordStore{}
 			}
 			metrics := &Metrics{}
-			handler := newRecordHandler(store, metrics, testLogger)
+			handler := NewRecordHandler(store, metrics, testLogger)
 
-			err := handler.HandleRecord(t.Context(), tc.attrs, tc.body)
+			err := handler.HandleRecord(t.Context(), tc.attrs)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("HandleRecord error: got %v, want %v", err, tc.wantErr)
 			}

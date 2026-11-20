@@ -7,17 +7,16 @@ import (
 	"strconv"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
 	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
-	logv1beta1 "github.com/cicd-sensor/cicd-sensor/internal/proto/cicd_sensor/log/v1beta1"
 )
 
 // Message attributes set by the manager's Pub/Sub sink. The job identity is
-// read from here and never from the record body: the manager binds these
-// values to the OIDC token, while the body is forwarded unparsed and is
-// whatever the job chose to send.
+// read from here and never from the record body, which the manager forwards
+// unparsed and is whatever the job chose to send. The manager binds these
+// values to the token only for OIDC principals; records ingested with a
+// manager token carry the same attributes unbound and cannot be told apart
+// here.
 const (
 	attrLogType          = "log_type"
 	attrProvider         = "provider"
@@ -41,12 +40,8 @@ type RecordHandler struct {
 	now     func() time.Time
 }
 
-// NewRecordHandler builds a RecordHandler over a Store.
-func NewRecordHandler(store *Store, metrics *Metrics, logger *slog.Logger) *RecordHandler {
-	return newRecordHandler(store, metrics, logger)
-}
-
-func newRecordHandler(store sensorRecordStore, metrics *Metrics, logger *slog.Logger) *RecordHandler {
+// NewRecordHandler builds a RecordHandler over store.
+func NewRecordHandler(store sensorRecordStore, metrics *Metrics, logger *slog.Logger) *RecordHandler {
 	return &RecordHandler{
 		store:   store,
 		metrics: metrics,
@@ -58,14 +53,9 @@ func newRecordHandler(store sensorRecordStore, metrics *Metrics, logger *slog.Lo
 // HandleRecord processes one message from the manager's Pub/Sub sink. It
 // returns an error only when the message should be redelivered; records
 // that can never be used are counted and dropped.
-func (h *RecordHandler) HandleRecord(ctx context.Context, attrs map[string]string, body []byte) error {
-	var kind RecordKind
-	switch attrs[attrLogType] {
-	case string(logtype.JobStart):
-		kind = RecordJobStart
-	case string(logtype.Summary):
-		kind = RecordSummary
-	default:
+func (h *RecordHandler) HandleRecord(ctx context.Context, attrs map[string]string) error {
+	kind := logtype.LogType(attrs[attrLogType])
+	if kind != logtype.JobStart && kind != logtype.Summary {
 		return nil
 	}
 
@@ -79,18 +69,6 @@ func (h *RecordHandler) HandleRecord(ctx context.Context, attrs map[string]strin
 		h.metrics.invalidRecords.Add(1)
 		h.logger.WarnContext(ctx, "record_attributes_invalid", "log_type", attrs[attrLogType], "error", err)
 		return nil
-	}
-	if kind == RecordSummary {
-		// The body is informational only. A Summary that cannot be decoded
-		// still proves the sensor finalized, so it is recorded regardless.
-		var entry logv1beta1.SummaryLogEntry
-		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &entry); err != nil {
-			h.metrics.invalidRecords.Add(1)
-			h.logger.WarnContext(ctx, "summary_body_invalid", "github_check_run_id", record.CheckRunID, "error", err)
-		} else {
-			record.SummaryResult = entry.GetResult()
-			record.FinalizeReason = entry.GetFinalizeReason()
-		}
 	}
 
 	afterVerdict, err := h.store.RecordSensorRecord(ctx, record, h.now().UTC())
@@ -108,7 +86,7 @@ func (h *RecordHandler) HandleRecord(ctx context.Context, attrs map[string]strin
 	return nil
 }
 
-func sensorRecordFromAttributes(kind RecordKind, attrs map[string]string) (SensorRecord, error) {
+func sensorRecordFromAttributes(kind logtype.LogType, attrs map[string]string) (SensorRecord, error) {
 	if attrs[attrProviderHost] == "" || attrs[attrProjectPath] == "" {
 		return SensorRecord{}, fmt.Errorf("%s and %s are required", attrProviderHost, attrProjectPath)
 	}

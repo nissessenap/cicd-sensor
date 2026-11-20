@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
 )
 
 // storeTestDSNEnv names the Postgres the store tests may truncate.
@@ -45,7 +47,7 @@ func readJob(t *testing.T, store *Store, key JobKey) (storedJob, bool) {
 	rows, err := store.pool.Query(t.Context(), `
 SELECT COALESCE(run_id, 0), COALESCE(run_attempt, 0), COALESCE(job_name, ''), COALESCE(runner_name, ''),
   COALESCE(step_count, 0), COALESCE(status, ''), COALESCE(conclusion, ''), completed_at,
-  start_seen_at, summary_seen_at, COALESCE(summary_result, ''), COALESCE(finalize_reason, ''),
+  start_seen_at, summary_seen_at,
   COALESCE(verdict, ''), verdict_at
 FROM jobs WHERE provider_host = $1 AND repository = $2 AND check_run_id = $3`,
 		key.ProviderHost, key.Repository, key.CheckRunID)
@@ -61,7 +63,7 @@ FROM jobs WHERE provider_host = $1 AND repository = $2 AND check_run_id = $3`,
 	if err := rows.Scan(
 		&got.RunID, &got.RunAttempt, &got.JobName, &got.RunnerName,
 		&got.StepCount, &got.Status, &got.Conclusion, &got.CompletedAt,
-		&got.StartSeenAt, &got.SummarySeenAt, &got.SummaryResult, &got.FinalizeReason,
+		&got.StartSeenAt, &got.SummarySeenAt,
 		&got.Verdict, &got.VerdictAt,
 	); err != nil {
 		t.Fatalf("scan job: %v", err)
@@ -109,14 +111,13 @@ func TestStore_UpsertInEitherOrderConvergesToTheSameRow(t *testing.T) {
 			t.Fatalf("UpsertProviderJob: %v", err)
 		}
 	}
-	record := func(kind RecordKind) func(*testing.T, *Store) {
+	record := func(kind logtype.LogType) func(*testing.T, *Store) {
 		return func(t *testing.T, store *Store) {
 			t.Helper()
 			// The record spells the repository in lower case.
 			key := JobKey{ProviderHost: "github.com", Repository: "acme/api", CheckRunID: storeTestKey.CheckRunID}
 			if _, err := store.RecordSensorRecord(t.Context(), SensorRecord{
 				JobKey: key, Kind: kind, RunID: 44798508261, RunAttempt: 1,
-				SummaryResult: "passed", FinalizeReason: "completed",
 			}, storeT0.Add(time.Second)); err != nil {
 				t.Fatalf("RecordSensorRecord(%s): %v", kind, err)
 			}
@@ -127,9 +128,9 @@ func TestStore_UpsertInEitherOrderConvergesToTheSameRow(t *testing.T) {
 		name  string
 		steps []func(*testing.T, *Store)
 	}{
-		{name: "webhook first, then start, then summary", steps: []func(*testing.T, *Store){webhook, record(RecordJobStart), record(RecordSummary)}},
-		{name: "records first, webhook last (fast job, slow webhook)", steps: []func(*testing.T, *Store){record(RecordJobStart), record(RecordSummary), webhook}},
-		{name: "summary before start (Pub/Sub does not order)", steps: []func(*testing.T, *Store){record(RecordSummary), webhook, record(RecordJobStart)}},
+		{name: "webhook first, then start, then summary", steps: []func(*testing.T, *Store){webhook, record(logtype.JobStart), record(logtype.Summary)}},
+		{name: "records first, webhook last (fast job, slow webhook)", steps: []func(*testing.T, *Store){record(logtype.JobStart), record(logtype.Summary), webhook}},
+		{name: "summary before start (Pub/Sub does not order)", steps: []func(*testing.T, *Store){record(logtype.Summary), webhook, record(logtype.JobStart)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -150,9 +151,6 @@ func TestStore_UpsertInEitherOrderConvergesToTheSameRow(t *testing.T) {
 			if got.StartSeenAt == nil || got.SummarySeenAt == nil {
 				t.Errorf("seen columns: start=%v summary=%v", got.StartSeenAt, got.SummarySeenAt)
 			}
-			if got.SummaryResult != "passed" || got.FinalizeReason != "completed" {
-				t.Errorf("summary columns: got %q/%q", got.SummaryResult, got.FinalizeReason)
-			}
 			var rows int
 			if err := store.pool.QueryRow(t.Context(), `SELECT count(*) FROM jobs`).Scan(&rows); err != nil {
 				t.Fatalf("count rows: %v", err)
@@ -168,9 +166,7 @@ func TestStore_RedeliveredRecordsKeepTheFirstSeenTime(t *testing.T) {
 	store := openTestStore(t)
 	first := storeT0.Add(time.Second)
 	for i, at := range []time.Time{first, first.Add(time.Minute), first.Add(time.Hour)} {
-		after, err := store.RecordSensorRecord(t.Context(), SensorRecord{
-			JobKey: storeTestKey, Kind: RecordSummary, SummaryResult: []string{"passed", "detected", "terminated"}[i],
-		}, at)
+		after, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: storeTestKey, Kind: logtype.Summary}, at)
 		if err != nil {
 			t.Fatalf("RecordSensorRecord #%d: %v", i, err)
 		}
@@ -182,8 +178,8 @@ func TestStore_RedeliveredRecordsKeepTheFirstSeenTime(t *testing.T) {
 	if got.SummarySeenAt == nil || !got.SummarySeenAt.Equal(first) {
 		t.Fatalf("summary_seen_at: got %v, want %s", got.SummarySeenAt, first)
 	}
-	if got.SummaryResult != "passed" {
-		t.Fatalf("summary_result: got %q, want the first delivery's value", got.SummaryResult)
+	if got.RunID != 0 || got.RunAttempt != 0 {
+		t.Fatalf("run identity: got %d/%d, want unset when the record carried none", got.RunID, got.RunAttempt)
 	}
 	if got.StartSeenAt != nil {
 		t.Fatalf("start_seen_at: got %v, want nil (a summary is not a start)", got.StartSeenAt)
@@ -192,7 +188,7 @@ func TestStore_RedeliveredRecordsKeepTheFirstSeenTime(t *testing.T) {
 
 func TestStore_RecordSensorRecord_RejectsUnknownKind(t *testing.T) {
 	store := openTestStore(t)
-	if _, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: storeTestKey, Kind: "detection"}, storeT0); err == nil {
+	if _, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: storeTestKey, Kind: logtype.Detection}, storeT0); err == nil {
 		t.Fatal("expected an error for an unsupported record kind")
 	}
 	if _, ok := readJob(t, store, storeTestKey); ok {
@@ -234,6 +230,55 @@ func TestStore_UpsertProviderJob_LateEventCannotMoveAJobBackwards(t *testing.T) 
 				t.Fatalf("completed columns lost: %+v", got.ProviderJob)
 			}
 		})
+	}
+}
+
+func TestStore_UpsertProviderJob_LateInProgressKeepsCompletedColumns(t *testing.T) {
+	store := openTestStore(t)
+	completedAt := storeT0.Add(16 * time.Second)
+	if err := store.UpsertProviderJob(t.Context(), providerJobAt("completed", &completedAt), storeT0); err != nil {
+		t.Fatalf("UpsertProviderJob(completed): %v", err)
+	}
+	// The in_progress event names another runner and has no steps or
+	// conclusion; none of that may overwrite the completed row.
+	late := providerJobAt("in_progress", nil)
+	late.RunnerName = "GitHub Actions 999"
+	if err := store.UpsertProviderJob(t.Context(), late, storeT0.Add(time.Minute)); err != nil {
+		t.Fatalf("UpsertProviderJob(in_progress): %v", err)
+	}
+
+	got, _ := readJob(t, store, storeTestKey)
+	if got.RunnerName != "GitHub Actions 1001602055" || got.StepCount != 3 || got.Conclusion != "success" {
+		t.Fatalf("completed columns: got runner %q, steps %d, conclusion %q", got.RunnerName, got.StepCount, got.Conclusion)
+	}
+	if got.CompletedAt == nil || !got.CompletedAt.Equal(completedAt) {
+		t.Fatalf("completed_at: got %v, want %s", got.CompletedAt, completedAt)
+	}
+}
+
+func TestStore_UpsertProviderJob_RedeliveredCompletedKeepsTheVerdict(t *testing.T) {
+	store := openTestStore(t)
+	completedAt := storeT0
+	if err := store.UpsertProviderJob(t.Context(), providerJobAt("completed", &completedAt), storeT0); err != nil {
+		t.Fatalf("UpsertProviderJob: %v", err)
+	}
+	verdictAt := completedAt.Add(time.Hour)
+	if decided, err := store.DecidePending(t.Context(), verdictAt, verdictAt, 10, decideWith(Expectation{})); err != nil || decided != 1 {
+		t.Fatalf("DecidePending: decided %d, err %v; want 1, nil", decided, err)
+	}
+
+	if err := store.UpsertProviderJob(t.Context(), providerJobAt("completed", &completedAt), verdictAt.Add(time.Minute)); err != nil {
+		t.Fatalf("UpsertProviderJob redelivery: %v", err)
+	}
+
+	got, _ := readJob(t, store, storeTestKey)
+	if got.Verdict != string(VerdictNoStart) || got.VerdictAt == nil || !got.VerdictAt.Equal(verdictAt) {
+		t.Fatalf("verdict: got %q at %v, want no_start at %s", got.Verdict, got.VerdictAt, verdictAt)
+	}
+	later := verdictAt.Add(time.Hour)
+	decided, err := store.DecidePending(t.Context(), later, later, 10, decideWith(Expectation{}))
+	if err != nil || decided != 0 {
+		t.Fatalf("DecidePending after redelivery: decided %d, err %v; want 0, nil", decided, err)
 	}
 }
 
@@ -290,7 +335,7 @@ func TestStore_DecidePending_VerdictIsFinal(t *testing.T) {
 	}
 
 	// A late Summary and a redelivered webhook must not reopen the job.
-	after, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: storeTestKey, Kind: RecordSummary, SummaryResult: "passed"}, cutoff.Add(time.Minute))
+	after, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: storeTestKey, Kind: logtype.Summary}, cutoff.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("RecordSensorRecord: %v", err)
 	}
@@ -319,10 +364,10 @@ func TestStore_DecidePending_VerdictIsFinal(t *testing.T) {
 	}
 }
 
-func TestStore_DecidePending_DecideErrorRollsBackTheBatch(t *testing.T) {
+func TestStore_DecidePending_DecideErrorLeavesOnlyThatJobUndecided(t *testing.T) {
 	store := openTestStore(t)
-	completedAt := storeT0
 	for id := range int64(3) {
+		completedAt := storeT0.Add(time.Duration(id) * time.Second)
 		job := providerJobAt("completed", &completedAt)
 		job.CheckRunID = id + 1
 		if err := store.UpsertProviderJob(t.Context(), job, storeT0); err != nil {
@@ -330,11 +375,11 @@ func TestStore_DecidePending_DecideErrorRollsBackTheBatch(t *testing.T) {
 		}
 	}
 	publishErr := errors.New("finding output unavailable")
-	calls := 0
-	cutoff := completedAt.Add(time.Hour)
-	_, err := store.DecidePending(t.Context(), cutoff, cutoff, 10, func(context.Context, Job) (Verdict, error) {
-		calls++
-		if calls == 2 {
+	cutoff := storeT0.Add(time.Hour)
+	var offered []int64
+	decided, err := store.DecidePending(t.Context(), cutoff, cutoff, 10, func(_ context.Context, job Job) (Verdict, error) {
+		offered = append(offered, job.CheckRunID)
+		if job.CheckRunID == 2 {
 			return "", publishErr
 		}
 		return VerdictNoStart, nil
@@ -342,17 +387,22 @@ func TestStore_DecidePending_DecideErrorRollsBackTheBatch(t *testing.T) {
 	if !errors.Is(err, publishErr) {
 		t.Fatalf("DecidePending error: got %v, want %v", err, publishErr)
 	}
-	var withVerdict int
-	if err := store.pool.QueryRow(t.Context(), `SELECT count(*) FROM jobs WHERE verdict IS NOT NULL`).Scan(&withVerdict); err != nil {
-		t.Fatalf("count verdicts: %v", err)
+	if decided != 1 || len(offered) != 2 {
+		t.Fatalf("decided %d after offering %v, want 1 decided and jobs [1 2] offered", decided, offered)
 	}
-	if withVerdict != 0 {
-		t.Fatalf("jobs with a verdict after a failed batch: got %d, want 0", withVerdict)
+	first, _ := readJob(t, store, JobKey{ProviderHost: storeTestKey.ProviderHost, Repository: storeTestKey.Repository, CheckRunID: 1})
+	if first.Verdict != string(VerdictNoStart) {
+		t.Fatalf("job decided before the failure: got verdict %q, want it to stay no_start", first.Verdict)
 	}
 
-	decided, err := store.DecidePending(t.Context(), cutoff, cutoff, 10, decideWith(Expectation{}))
-	if err != nil || decided != 3 {
-		t.Fatalf("retry: decided %d, err %v; want 3, nil", decided, err)
+	// The retry offers only the failed job and the one after it.
+	offered = nil
+	decided, err = store.DecidePending(t.Context(), cutoff, cutoff, 10, func(_ context.Context, job Job) (Verdict, error) {
+		offered = append(offered, job.CheckRunID)
+		return VerdictNoStart, nil
+	})
+	if err != nil || decided != 2 || len(offered) != 2 || offered[0] != 2 || offered[1] != 3 {
+		t.Fatalf("retry: decided %d, offered %v, err %v; want 2, [2 3], nil", decided, offered, err)
 	}
 }
 
@@ -484,7 +534,7 @@ func TestStore_CountRecordsWithoutProviderJob(t *testing.T) {
 	recent := JobKey{ProviderHost: "github.com", Repository: "acme/api", CheckRunID: 2}
 	joined := JobKey{ProviderHost: "github.com", Repository: "acme/api", CheckRunID: 3}
 	for key, at := range map[JobKey]time.Time{orphan: storeT0, recent: storeT0.Add(time.Hour), joined: storeT0} {
-		if _, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: key, Kind: RecordJobStart}, at); err != nil {
+		if _, err := store.RecordSensorRecord(t.Context(), SensorRecord{JobKey: key, Kind: logtype.JobStart}, at); err != nil {
 			t.Fatalf("RecordSensorRecord: %v", err)
 		}
 	}

@@ -16,8 +16,8 @@ import (
 
 var testLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// fakeVerdictStore serves pending jobs in batches and records verdicts the
-// way Store does: a failed decide stores nothing from that batch.
+// fakeVerdictStore serves pending jobs and records verdicts the way Store
+// does: a failed decide leaves that job, and the ones after it, pending.
 type fakeVerdictStore struct {
 	mu       sync.Mutex
 	pending  []Job
@@ -38,23 +38,22 @@ func (s *fakeVerdictStore) DecidePending(ctx context.Context, completedBefore, _
 	if s.decideErr != nil {
 		return 0, s.decideErr
 	}
-	batch := s.pending[:min(limit, len(s.pending))]
-	decided := make(map[int64]Verdict, len(batch))
-	for _, job := range batch {
-		verdict, err := decide(ctx, job)
-		if err != nil {
-			return 0, err
-		}
-		decided[job.CheckRunID] = verdict
-	}
 	if s.verdicts == nil {
 		s.verdicts = make(map[int64]Verdict)
 	}
-	for id, verdict := range decided {
-		s.verdicts[id] = verdict
+	for decided := range limit {
+		if len(s.pending) == 0 {
+			return decided, nil
+		}
+		job := s.pending[0]
+		verdict, err := decide(ctx, job)
+		if err != nil {
+			return decided, err
+		}
+		s.verdicts[job.CheckRunID] = verdict
+		s.pending = s.pending[1:]
 	}
-	s.pending = s.pending[len(batch):]
-	return len(batch), nil
+	return limit, nil
 }
 
 func (s *fakeVerdictStore) DeleteOlderThan(_ context.Context, cutoff time.Time) (int64, error) {
@@ -73,13 +72,21 @@ func (s *fakeVerdictStore) CountRecordsWithoutProviderJob(context.Context, time.
 type recordingPublisher struct {
 	mu       sync.Mutex
 	findings []Finding
+	attempts []Finding
+	timeouts []time.Duration
 	err      error
+	// failCheckRunID makes only that job's publish fail.
+	failCheckRunID int64
 }
 
-func (p *recordingPublisher) Publish(_ context.Context, finding Finding) error {
+func (p *recordingPublisher) Publish(ctx context.Context, finding Finding) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.err != nil {
+	p.attempts = append(p.attempts, finding)
+	if deadline, ok := ctx.Deadline(); ok {
+		p.timeouts = append(p.timeouts, time.Until(deadline))
+	}
+	if p.err != nil && (p.failCheckRunID == 0 || p.failCheckRunID == finding.CheckRunID) {
 		return p.err
 	}
 	p.findings = append(p.findings, finding)
@@ -118,7 +125,7 @@ func testReconciler(store verdictStore, publisher FindingPublisher) (*Reconciler
 	if publisher != nil {
 		cfg.Publisher = publisher
 	}
-	r := newReconciler(store, cfg)
+	r := NewReconciler(store, cfg)
 	r.now = func() time.Time { return time.Date(2026, 11, 20, 20, 0, 0, 0, time.UTC) }
 	return r, metrics
 }
@@ -170,10 +177,10 @@ func TestReconcileOnce_EmitsOneFindingPerMissingTelemetryJob(t *testing.T) {
 	if noStart.LogType != FindingLogType || noStart.SchemaVersion != FindingSchemaVersion || noStart.LogID == "" {
 		t.Errorf("finding envelope: got %+v", noStart)
 	}
-	if got := metrics.FindingsTotal(VerdictNoStart); got != 1 {
+	if got := metrics.findingsNoStart.Load(); got != 1 {
 		t.Errorf("no_start findings counter: got %d, want 1", got)
 	}
-	if got := metrics.FindingsTotal(VerdictNoSummary); got != 1 {
+	if got := metrics.findingsNoSummary.Load(); got != 1 {
 		t.Errorf("no_summary findings counter: got %d, want 1", got)
 	}
 	if got := metrics.recordsWithoutProviderJob.Load(); got != 2 {
@@ -201,7 +208,7 @@ func TestReconcileOnce_WithoutPublisherStillCountsAndStoresVerdict(t *testing.T)
 	if got := store.verdicts[1]; got != VerdictNoStart {
 		t.Fatalf("verdict: got %q, want %q", got, VerdictNoStart)
 	}
-	if got := metrics.FindingsTotal(VerdictNoStart); got != 1 {
+	if got := metrics.findingsNoStart.Load(); got != 1 {
 		t.Fatalf("findings counter: got %d, want 1", got)
 	}
 }
@@ -221,7 +228,7 @@ func TestReconcileOnce_DrainsMoreThanOneBatch(t *testing.T) {
 	if got, want := len(store.verdicts), decideBatchSize+1; got != want {
 		t.Fatalf("decided jobs: got %d, want %d", got, want)
 	}
-	if got, want := metrics.FindingsTotal(VerdictNoStart), uint64(decideBatchSize+1); got != want {
+	if got, want := metrics.findingsNoStart.Load(), uint64(decideBatchSize+1); got != want {
 		t.Fatalf("findings counter: got %d, want %d", got, want)
 	}
 }
@@ -241,7 +248,7 @@ func TestReconcileOnce_PublishFailureLeavesJobUndecided(t *testing.T) {
 	if _, decided := store.verdicts[1]; decided {
 		t.Fatal("a job whose finding could not be published must stay undecided")
 	}
-	if got := metrics.FindingsTotal(VerdictNoStart); got != 0 {
+	if got := metrics.findingsNoStart.Load(); got != 0 {
 		t.Fatalf("findings counter: got %d, want 0", got)
 	}
 
@@ -283,6 +290,150 @@ func TestReconcileOnce_StoreErrors(t *testing.T) {
 	}
 }
 
+func TestReconcileOnce_PublishFailureRetriesOnlyThatJobWithTheSameFinding(t *testing.T) {
+	t.Parallel()
+
+	publishErr := errors.New("pubsub unavailable")
+	store := &fakeVerdictStore{pending: []Job{completedJob(1, nil), completedJob(2, nil), completedJob(3, nil)}}
+	publisher := &recordingPublisher{err: publishErr, failCheckRunID: 2}
+	r, metrics := testReconciler(store, publisher)
+
+	if err := r.ReconcileOnce(t.Context()); !errors.Is(err, publishErr) {
+		t.Fatalf("ReconcileOnce error: got %v, want %v", err, publishErr)
+	}
+	if got := store.verdicts[1]; got != VerdictNoStart {
+		t.Fatalf("job decided before the failure: got verdict %q, want %q", got, VerdictNoStart)
+	}
+	if _, decided := store.verdicts[2]; decided {
+		t.Fatal("the job whose finding could not be published must stay undecided")
+	}
+
+	publisher.mu.Lock()
+	publisher.err = nil
+	publisher.mu.Unlock()
+	if err := r.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce retry: %v", err)
+	}
+
+	published := map[int64]int{}
+	for _, finding := range publisher.findings {
+		published[finding.CheckRunID]++
+	}
+	for id := range int64(3) {
+		if published[id+1] != 1 {
+			t.Errorf("job %d published %d times, want exactly once", id+1, published[id+1])
+		}
+	}
+	if got := metrics.findingsNoStart.Load(); got != 3 {
+		t.Errorf("findings counter: got %d, want 3", got)
+	}
+	logIDs := map[string]bool{}
+	for _, attempt := range publisher.attempts {
+		if attempt.CheckRunID == 2 {
+			logIDs[attempt.LogID] = true
+		}
+	}
+	if len(logIDs) != 1 {
+		t.Errorf("log_id of the retried finding: got %d distinct values, want 1 so consumers can deduplicate", len(logIDs))
+	}
+	for _, timeout := range publisher.timeouts {
+		if timeout <= 0 || timeout > publishTimeout {
+			t.Errorf("publish deadline: got %s, want within %s", timeout, publishTimeout)
+		}
+	}
+	if len(publisher.timeouts) != len(publisher.attempts) {
+		t.Errorf("publishes with a deadline: got %d of %d", len(publisher.timeouts), len(publisher.attempts))
+	}
+}
+
+func TestNewFinding_LogID(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 20, 20, 0, 0, 0, time.UTC)
+	base := newFinding(completedJob(1, nil), VerdictNoStart, now).LogID
+	cases := []struct {
+		name     string
+		job      Job
+		verdict  Verdict
+		at       time.Time
+		wantSame bool
+	}{
+		{name: "same job and verdict at a later time", job: completedJob(1, nil), verdict: VerdictNoStart, at: now.Add(time.Hour), wantSame: true},
+		{name: "other verdict for the same job", job: completedJob(1, nil), verdict: VerdictNoSummary, at: now},
+		{name: "other job", job: completedJob(2, nil), verdict: VerdictNoStart, at: now},
+		{name: "same check run id in another repository", job: completedJob(1, func(j *Job) { j.Repository = "acme/web" }), verdict: VerdictNoStart, at: now},
+		{name: "same check run id on another host", job: completedJob(1, func(j *Job) { j.ProviderHost = "ghe.example.com" }), verdict: VerdictNoStart, at: now},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := newFinding(tc.job, tc.verdict, tc.at).LogID
+			if got == "" {
+				t.Fatal("log_id is empty")
+			}
+			if (got == base) != tc.wantSame {
+				t.Fatalf("log_id %q vs base %q: same=%t, want %t", got, base, got == base, tc.wantSame)
+			}
+		})
+	}
+}
+
+func TestReconcilerRun_WaitsOneGracePeriodBeforeTheFirstPass(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		store := &fakeVerdictStore{pending: []Job{completedJob(1, nil)}}
+		r, _ := testReconciler(store, nil)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx, 30*time.Second) }()
+
+		passes := func() int {
+			synctest.Wait()
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			return len(store.decideCutoffs)
+		}
+		if got := passes(); got != 0 {
+			t.Fatalf("passes at start: got %d, want 0", got)
+		}
+		time.Sleep(r.gracePeriod - time.Second)
+		if got := passes(); got != 0 {
+			t.Fatalf("passes just before the grace period ends: got %d, want 0", got)
+		}
+		time.Sleep(time.Second)
+		if got := passes(); got != 1 {
+			t.Fatalf("passes once the grace period has elapsed: got %d, want 1", got)
+		}
+
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: got %v, want nil", err)
+		}
+	})
+}
+
+func TestReconcilerRun_StopsDuringTheInitialWait(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		store := &fakeVerdictStore{pending: []Job{completedJob(1, nil)}}
+		r, _ := testReconciler(store, nil)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx, 30*time.Second) }()
+
+		time.Sleep(time.Minute)
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: got %v, want nil", err)
+		}
+		if len(store.decideCutoffs) != 0 {
+			t.Errorf("passes: got %d, want none before the grace period", len(store.decideCutoffs))
+		}
+	})
+}
+
 func TestReconcilerRun_KeepsTickingAfterAFailedPass(t *testing.T) {
 	t.Parallel()
 
@@ -293,8 +444,8 @@ func TestReconcilerRun_KeepsTickingAfterAFailedPass(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- r.Run(ctx, 30*time.Second) }()
 
-		// One pass at start, then one per interval.
-		time.Sleep(65 * time.Second)
+		// One pass after the grace period, then one per interval.
+		time.Sleep(r.gracePeriod + 65*time.Second)
 		synctest.Wait()
 		if got := metrics.reconcileErrors.Load(); got != 3 {
 			t.Errorf("failed passes: got %d, want 3", got)
@@ -314,8 +465,8 @@ func TestReconcilerRun_KeepsTickingAfterAFailedPass(t *testing.T) {
 		}
 
 		cancel()
-		if err := <-done; !errors.Is(err, context.Canceled) {
-			t.Errorf("Run: got %v, want context.Canceled", err)
+		if err := <-done; err != nil {
+			t.Errorf("Run: got %v, want nil", err)
 		}
 	})
 }

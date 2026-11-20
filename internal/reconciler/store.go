@@ -3,11 +3,14 @@ package reconciler
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
 )
 
 //go:embed schema.sql
@@ -98,15 +101,13 @@ func (s *Store) UpsertProviderJob(ctx context.Context, job ProviderJob, now time
 const upsertSensorRecordSQL = `
 INSERT INTO jobs (
   provider_host, repository, check_run_id, run_id, run_attempt,
-  start_seen_at, summary_seen_at, summary_result, finalize_reason, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  start_seen_at, summary_seen_at, updated_at
+) VALUES ($1, $2, $3, NULLIF($4::bigint, 0), NULLIF($5::int, 0), $6, $7, $8)
 ON CONFLICT (provider_host, repository, check_run_id) DO UPDATE SET
   run_id = COALESCE(jobs.run_id, EXCLUDED.run_id),
   run_attempt = COALESCE(jobs.run_attempt, EXCLUDED.run_attempt),
   start_seen_at = COALESCE(jobs.start_seen_at, EXCLUDED.start_seen_at),
   summary_seen_at = COALESCE(jobs.summary_seen_at, EXCLUDED.summary_seen_at),
-  summary_result = COALESCE(jobs.summary_result, EXCLUDED.summary_result),
-  finalize_reason = COALESCE(jobs.finalize_reason, EXCLUDED.finalize_reason),
   updated_at = EXCLUDED.updated_at
 RETURNING verdict IS NOT NULL`
 
@@ -116,20 +117,17 @@ RETURNING verdict IS NOT NULL`
 func (s *Store) RecordSensorRecord(ctx context.Context, record SensorRecord, now time.Time) (afterVerdict bool, err error) {
 	key := record.JobKey.normalized()
 	var startSeenAt, summarySeenAt *time.Time
-	var summaryResult, finalizeReason *string
 	switch record.Kind {
-	case RecordJobStart:
+	case logtype.JobStart:
 		startSeenAt = &now
-	case RecordSummary:
+	case logtype.Summary:
 		summarySeenAt = &now
-		summaryResult = nullIfEmpty(record.SummaryResult)
-		finalizeReason = nullIfEmpty(record.FinalizeReason)
 	default:
 		return false, fmt.Errorf("unsupported record kind %q", record.Kind)
 	}
 	err = s.pool.QueryRow(ctx, upsertSensorRecordSQL,
-		key.ProviderHost, key.Repository, key.CheckRunID, nullIfZero(record.RunID), nullIfZero(record.RunAttempt),
-		startSeenAt, summarySeenAt, summaryResult, finalizeReason, now,
+		key.ProviderHost, key.Repository, key.CheckRunID, record.RunID, record.RunAttempt,
+		startSeenAt, summarySeenAt, now,
 	).Scan(&afterVerdict)
 	if err != nil {
 		return false, fmt.Errorf("upsert sensor record: %w", err)
@@ -141,48 +139,60 @@ const selectPendingSQL = `
 SELECT provider_host, repository, check_run_id, COALESCE(run_id, 0), COALESCE(run_attempt, 0),
   COALESCE(job_name, ''), COALESCE(workflow_name, ''), COALESCE(labels, '{}'), COALESCE(runner_name, ''),
   COALESCE(step_count, 0), COALESCE(status, ''), COALESCE(conclusion, ''), started_at, completed_at,
-  start_seen_at, summary_seen_at, COALESCE(summary_result, ''), COALESCE(finalize_reason, '')
+  start_seen_at, summary_seen_at
 FROM jobs
 WHERE verdict IS NULL AND status = 'completed' AND completed_at < $1
 ORDER BY completed_at
-LIMIT $2
+LIMIT 1
 FOR UPDATE SKIP LOCKED`
 
 // DecidePending gives a verdict to up to limit completed jobs that finished
-// before completedBefore and have none yet. decide runs inside the
-// transaction that holds the row locks: if it fails, no verdict in the batch
-// is stored and the batch is retried later, so side effects in decide happen
-// at least once. Rows locked by another replica are skipped.
+// before completedBefore and have none yet, oldest first, and returns how
+// many it decided. Each job has its own transaction, and decide runs while
+// that transaction holds the row lock: if decide fails, only that job stays
+// undecided and is retried later, so side effects in decide happen at least
+// once. Rows locked by another replica are skipped.
 func (s *Store) DecidePending(ctx context.Context, completedBefore, now time.Time, limit int, decide func(context.Context, Job) (Verdict, error)) (int, error) {
-	decided := 0
+	for decided := range limit {
+		found, err := s.decideOne(ctx, completedBefore, now, decide)
+		if err != nil {
+			return decided, err
+		}
+		if !found {
+			return decided, nil
+		}
+	}
+	return limit, nil
+}
+
+func (s *Store) decideOne(ctx context.Context, completedBefore, now time.Time, decide func(context.Context, Job) (Verdict, error)) (bool, error) {
+	found := false
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, selectPendingSQL, completedBefore, limit)
+		rows, err := tx.Query(ctx, selectPendingSQL, completedBefore)
 		if err != nil {
-			return fmt.Errorf("select pending jobs: %w", err)
+			return fmt.Errorf("select pending job: %w", err)
 		}
-		jobs, err := pgx.CollectRows(rows, scanJob)
+		job, err := pgx.CollectExactlyOneRow(rows, scanJob)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		if err != nil {
-			return fmt.Errorf("scan pending jobs: %w", err)
+			return fmt.Errorf("scan pending job: %w", err)
 		}
-		for _, job := range jobs {
-			verdict, err := decide(ctx, job)
-			if err != nil {
-				return fmt.Errorf("decide job %d: %w", job.CheckRunID, err)
-			}
-			if _, err := tx.Exec(ctx,
-				`UPDATE jobs SET verdict = $1, verdict_at = $2 WHERE provider_host = $3 AND repository = $4 AND check_run_id = $5`,
-				string(verdict), now, job.ProviderHost, job.Repository, job.CheckRunID,
-			); err != nil {
-				return fmt.Errorf("store verdict for job %d: %w", job.CheckRunID, err)
-			}
+		verdict, err := decide(ctx, job)
+		if err != nil {
+			return fmt.Errorf("decide job %d: %w", job.CheckRunID, err)
 		}
-		decided = len(jobs)
+		if _, err := tx.Exec(ctx,
+			`UPDATE jobs SET verdict = $1, verdict_at = $2 WHERE provider_host = $3 AND repository = $4 AND check_run_id = $5`,
+			string(verdict), now, job.ProviderHost, job.Repository, job.CheckRunID,
+		); err != nil {
+			return fmt.Errorf("store verdict for job %d: %w", job.CheckRunID, err)
+		}
+		found = true
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-	return decided, nil
+	return found, err
 }
 
 func scanJob(row pgx.CollectableRow) (Job, error) {
@@ -191,7 +201,7 @@ func scanJob(row pgx.CollectableRow) (Job, error) {
 		&job.ProviderHost, &job.Repository, &job.CheckRunID, &job.RunID, &job.RunAttempt,
 		&job.JobName, &job.WorkflowName, &job.Labels, &job.RunnerName,
 		&job.StepCount, &job.Status, &job.Conclusion, &job.StartedAt, &job.CompletedAt,
-		&job.StartSeenAt, &job.SummarySeenAt, &job.SummaryResult, &job.FinalizeReason,
+		&job.StartSeenAt, &job.SummarySeenAt,
 	)
 	return job, err
 }
@@ -218,18 +228,4 @@ func (s *Store) CountRecordsWithoutProviderJob(ctx context.Context, cutoff time.
 		return 0, fmt.Errorf("count records without provider job: %w", err)
 	}
 	return count, nil
-}
-
-func nullIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func nullIfZero[T int | int64](n T) *T {
-	if n == 0 {
-		return nil
-	}
-	return &n
 }

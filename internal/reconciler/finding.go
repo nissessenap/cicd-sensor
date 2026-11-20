@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,10 +44,10 @@ type Finding struct {
 }
 
 func newFinding(job Job, verdict Verdict, now time.Time) Finding {
-	id, err := uuid.NewV7()
-	if err != nil {
-		id = uuid.New()
-	}
+	// A retried job must republish the same finding, so the ID is derived
+	// from what the finding says and consumers can deduplicate on it.
+	id := uuid.NewSHA1(uuid.NameSpaceURL, fmt.Appendf(nil, "%s/%s/%s/%d/%s",
+		FindingLogType, job.ProviderHost, job.Repository, job.CheckRunID, verdict))
 	return Finding{
 		Timestamp:     now.UTC(),
 		LogType:       FindingLogType,
@@ -77,10 +76,5 @@ func jobLink(job Job) string {
 	if job.ProviderHost == "" || job.Repository == "" || job.RunID == 0 {
 		return ""
 	}
-	u := url.URL{
-		Scheme: "https",
-		Host:   job.ProviderHost,
-		Path:   fmt.Sprintf("/%s/actions/runs/%d/job/%d", job.Repository, job.RunID, job.CheckRunID),
-	}
-	return u.String()
+	return fmt.Sprintf("https://%s/%s/actions/runs/%d/job/%d", job.ProviderHost, job.Repository, job.RunID, job.CheckRunID)
 }

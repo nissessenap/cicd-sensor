@@ -52,7 +52,6 @@ func Run(ctx context.Context, logger *slog.Logger, cfg Config, secrets Secrets) 
 
 	metrics := &Metrics{}
 	loopConfig := ReconcilerConfig{
-		Store:       store,
 		Expect:      cfg.Expect,
 		GracePeriod: cfg.GracePeriod,
 		Retention:   cfg.Retention,
@@ -64,7 +63,7 @@ func Run(ctx context.Context, logger *slog.Logger, cfg Config, secrets Secrets) 
 		defer publisher.Stop()
 		loopConfig.Publisher = publisher
 	}
-	loop := NewReconciler(loopConfig)
+	loop := NewReconciler(store, loopConfig)
 	webhook, err := NewGitHubWebhookHandler(secrets.GitHubWebhookSecret, store, metrics, logger)
 	if err != nil {
 		return err
@@ -84,9 +83,9 @@ func Run(ctx context.Context, logger *slog.Logger, cfg Config, secrets Secrets) 
 	}
 
 	group, ctx := errgroup.WithContext(ctx)
-	group.Go(func() error { return ignoreCanceled(loop.Run(ctx, cfg.ReconcileInterval)) })
+	group.Go(func() error { return loop.Run(ctx, cfg.ReconcileInterval) })
 	group.Go(func() error {
-		return ignoreCanceled(ConsumeRecords(ctx, pubsubClient, cfg.PubSub.Subscription, records, logger))
+		return ConsumeRecords(ctx, pubsubClient, cfg.PubSub.Subscription, records, logger)
 	})
 	group.Go(func() error {
 		if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
@@ -101,13 +100,6 @@ func Run(ctx context.Context, logger *slog.Logger, cfg Config, secrets Secrets) 
 		return server.Shutdown(shutdownCtx)
 	})
 	return group.Wait()
-}
-
-func ignoreCanceled(err error) error {
-	if errors.Is(err, context.Canceled) {
-		return nil
-	}
-	return err
 }
 
 // pinger reports whether the reconciler's database is reachable.

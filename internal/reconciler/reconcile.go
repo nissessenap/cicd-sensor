@@ -7,8 +7,13 @@ import (
 	"time"
 )
 
-// decideBatchSize bounds how many rows one transaction locks.
-const decideBatchSize = 100
+const (
+	// decideBatchSize bounds how many jobs one store call decides.
+	decideBatchSize = 100
+	// publishTimeout bounds one finding publish, which runs while a row lock
+	// and a pool connection are held.
+	publishTimeout = 10 * time.Second
+)
 
 // verdictStore is the part of Store the verdict loop uses.
 type verdictStore interface {
@@ -38,7 +43,6 @@ type Reconciler struct {
 
 // ReconcilerConfig carries the inputs for NewReconciler.
 type ReconcilerConfig struct {
-	Store       *Store
 	Expect      Expectation
 	GracePeriod time.Duration
 	Retention   time.Duration
@@ -48,12 +52,8 @@ type ReconcilerConfig struct {
 	Logger    *slog.Logger
 }
 
-// NewReconciler builds the verdict loop over a Store.
-func NewReconciler(cfg ReconcilerConfig) *Reconciler {
-	return newReconciler(cfg.Store, cfg)
-}
-
-func newReconciler(store verdictStore, cfg ReconcilerConfig) *Reconciler {
+// NewReconciler builds the verdict loop over store.
+func NewReconciler(store verdictStore, cfg ReconcilerConfig) *Reconciler {
 	return &Reconciler{
 		store:       store,
 		expect:      cfg.Expect,
@@ -68,7 +68,16 @@ func newReconciler(store verdictStore, cfg ReconcilerConfig) *Reconciler {
 
 // Run reconciles every interval until ctx is done. A failed pass is logged
 // and retried on the next tick.
+//
+// The first pass waits one grace period: verdicts are final, and after a
+// restart the records of jobs that completed while the reconciler was down
+// are still queued in the subscription.
 func (r *Reconciler) Run(ctx context.Context, interval time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(r.gracePeriod):
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -78,7 +87,7 @@ func (r *Reconciler) Run(ctx context.Context, interval time.Duration) error {
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 		}
 	}
@@ -126,7 +135,10 @@ func (r *Reconciler) decide(ctx context.Context, job Job, now time.Time) (Verdic
 	// Publish first: a failure leaves the verdict unset, so the job is
 	// retried instead of being reported in the log only.
 	if r.publisher != nil {
-		if err := r.publisher.Publish(ctx, finding); err != nil {
+		publishCtx, cancel := context.WithTimeout(ctx, publishTimeout)
+		err := r.publisher.Publish(publishCtx, finding)
+		cancel()
+		if err != nil {
 			return "", fmt.Errorf("publish finding: %w", err)
 		}
 	}

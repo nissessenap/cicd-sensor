@@ -28,18 +28,6 @@ func (m *Metrics) countFinding(verdict Verdict) {
 	}
 }
 
-// FindingsTotal returns the number of findings emitted for verdict.
-func (m *Metrics) FindingsTotal(verdict Verdict) uint64 {
-	switch verdict {
-	case VerdictNoStart:
-		return m.findingsNoStart.Load()
-	case VerdictNoSummary:
-		return m.findingsNoSummary.Load()
-	default:
-		return 0
-	}
-}
-
 // ServeHTTP writes every metric in the Prometheus text format.
 func (m *Metrics) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -52,7 +40,7 @@ func (m *Metrics) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "# HELP %s%s %s\n# TYPE %s%s counter\n%s%s %d\n", prefix, name, help, prefix, name, prefix, name, value)
 	}
 	counter("unjoinable_records_total", "Sensor records dropped because they carry no GitHub check run ID.", m.unjoinableRecords.Load())
-	counter("invalid_records_total", "Sensor records dropped because they could not be decoded.", m.invalidRecords.Load())
+	counter("invalid_records_total", "Sensor records dropped because their identity attributes are missing or malformed.", m.invalidRecords.Load())
 	counter("late_records_total", "Sensor records that arrived after their job already had a verdict.", m.lateRecords.Load())
 	counter("webhook_signature_failures_total", "Webhook requests rejected for a missing or invalid signature.", m.webhookSignatureFailures.Load())
 	counter("reconcile_errors_total", "Reconcile passes that ended in an error.", m.reconcileErrors.Load())

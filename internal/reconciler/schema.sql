@@ -15,8 +15,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   completed_at     timestamptz,
   start_seen_at    timestamptz,
   summary_seen_at  timestamptz,
-  summary_result   text,
-  finalize_reason  text,
   verdict          text,
   verdict_at       timestamptz,
   updated_at       timestamptz NOT NULL,

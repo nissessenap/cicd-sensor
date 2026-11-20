@@ -39,6 +39,10 @@ In that setup a killed sensor shows as `no_start` instead of `no_summary`.
 A verdict is final.
 A log that arrives after it is stored and counted in `cicd_sensor_reconciler_late_records_total`; raise `grace_period` if that counter grows.
 
+After a start, the reconciler waits one `grace_period` before it decides any job, so logs queued in the subscription while it was down can be read first.
+If the subscription lags by more than `grace_period`, jobs are decided before their logs are read and reported as findings.
+Alert on the subscription's oldest unacked message age, and treat a growing `late_records_total` as a sign of false findings.
+
 ## Requirements
 
 - Jobs are started through the GitHub Action on github.com, with an action version that passes `job.check_run_id` to the Agent.
@@ -109,7 +113,8 @@ Several replicas can share one database.
 | `GET /healthz` | `200` when Postgres is reachable. |
 | `GET /metrics` | Prometheus text format. |
 
-Only `/webhook/github` needs to be reachable from GitHub.
+All three are served on the same port.
+Expose only `/webhook/github` publicly, for example with path-based routing at the ingress, and keep `/healthz` and `/metrics` internal: neither is authenticated, and `/healthz` queries Postgres on every request.
 
 ## Findings
 
@@ -125,7 +130,7 @@ Each `no_start` and `no_summary` job produces:
   "log_type": "cicd_sensor.missing_telemetry",
   "service_name": "cicd-sensor-reconciler",
   "schema_version": "v1",
-  "log_id": "019a...",
+  "log_id": "6f1c2a0e-5b7d-5c3a-9e41-2d8f0b6a7c15",
   "verdict": "no_summary",
   "provider_host": "github.com",
   "repository": "acme/example",
@@ -144,7 +149,9 @@ Each `no_start` and `no_summary` job produces:
 ```
 
 A finding is delivered at least once.
-If publishing fails, the job keeps no verdict and is retried on the next pass, so a consumer may see a finding twice; deduplicate on `github_check_run_id`.
+If publishing fails or the verdict cannot be stored, that job keeps no verdict and is retried on the next pass, so a consumer may see a finding twice.
+`log_id` is derived from the job and the verdict and is the same on every retry; deduplicate on it.
+The log line and the counter are at least once too, so a retried job can be logged and counted twice.
 
 Other metrics:
 
@@ -152,10 +159,16 @@ Other metrics:
 | --- | --- |
 | `cicd_sensor_reconciler_unjoinable_records_total` | Logs without a check run ID. |
 | `cicd_sensor_reconciler_late_records_total` | Logs that arrived after their job's verdict. |
-| `cicd_sensor_reconciler_invalid_records_total` | Logs that could not be decoded. |
+| `cicd_sensor_reconciler_invalid_records_total` | Logs whose identity attributes are missing or malformed. |
 | `cicd_sensor_reconciler_webhook_signature_failures_total` | Rejected webhook requests. |
 | `cicd_sensor_reconciler_records_without_provider_job` | Jobs the sensor reported that GitHub never told the reconciler about, older than the grace period. A non-zero value suggests lost webhook deliveries. |
 | `cicd_sensor_reconciler_reconcile_errors_total` | Failed reconcile passes. |
+
+## False findings
+
+- **Jobs that end before the sensor step.** A job counts as having run as soon as a runner picks it up. A job that is cancelled or fails before the Action step starts the Agent (a `concurrency` group with `cancel-in-progress`, a failed checkout, a setup failure) is reported as `no_start`. Filter on `conclusion`, or expect a steady rate of these in repositories that cancel superseded runs.
+- **Logs the manager failed to publish.** The manager's Pub/Sub sink publishes asynchronously and only logs a `pubsub_publish_failed` warning when a publish fails. A lost `job_start` or `summary` becomes a `no_start` or `no_summary` finding with nothing linking the two. Alert on that manager log line.
+- **Subscription lag longer than `grace_period`**, as described under [Verdicts](#verdicts).
 
 ## What this does not detect
 

@@ -3,6 +3,8 @@ package reconciler
 import (
 	"strings"
 	"time"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
 )
 
 // JobKey identifies one GitHub job. CheckRunID is the job `id` in GitHub's
@@ -37,33 +39,21 @@ type ProviderJob struct {
 	CompletedAt  *time.Time
 }
 
-// RecordKind is the sensor record type the reconciler tracks.
-type RecordKind string
-
-const (
-	RecordJobStart RecordKind = "job_start"
-	RecordSummary  RecordKind = "summary"
-)
-
 // SensorRecord is what the reconciler keeps from one job_start or summary
 // record.
 type SensorRecord struct {
 	JobKey
-	Kind RecordKind
+	// Kind is logtype.JobStart or logtype.Summary.
+	Kind logtype.LogType
 	// RunID and RunAttempt are zero when the record did not carry them.
 	RunID      int64
 	RunAttempt int
-	// SummaryResult and FinalizeReason are set for RecordSummary only.
-	SummaryResult  string
-	FinalizeReason string
 }
 
 // Job is one stored row: the provider's view joined with what the sensor
 // reported.
 type Job struct {
 	ProviderJob
-	StartSeenAt    *time.Time
-	SummarySeenAt  *time.Time
-	SummaryResult  string
-	FinalizeReason string
+	StartSeenAt   *time.Time
+	SummarySeenAt *time.Time
 }

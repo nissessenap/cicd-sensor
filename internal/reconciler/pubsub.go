@@ -14,7 +14,7 @@ import (
 // the store failed so Pub/Sub redelivers it.
 func ConsumeRecords(ctx context.Context, client *pubsub.Client, subscription string, handler *RecordHandler, logger *slog.Logger) error {
 	err := client.Subscriber(subscription).Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		if err := handler.HandleRecord(ctx, msg.Attributes, msg.Data); err != nil {
+		if err := handler.HandleRecord(ctx, msg.Attributes); err != nil {
 			logger.ErrorContext(ctx, "record_store_failed", "error", err)
 			msg.Nack()
 			return
