@@ -13,6 +13,9 @@ const (
 	RuleActionDetect    RuleAction = "detect"
 	RuleActionTerminate RuleAction = "terminate"
 	RuleActionCollect   RuleAction = "collect"
+	// RuleActionBlock refuses the matching connect in the kernel. It is only
+	// valid on network_connect rules with destination-only conditions.
+	RuleActionBlock RuleAction = "block"
 )
 
 var RuleIDPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)

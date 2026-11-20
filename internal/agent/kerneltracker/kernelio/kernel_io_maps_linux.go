@@ -11,9 +11,9 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-func (kernelIO *LinuxKernelIO) PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64) error {
+func (kernelIO *LinuxKernelIO) PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64, netBlockToken uint32) error {
 	_ = ctx
-	if err := kernelIO.objs.TrackedCgroups.Update(cgroupID, uint8(1), ebpf.UpdateAny); err != nil {
+	if err := kernelIO.objs.TrackedCgroups.Update(cgroupID, netBlockToken, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("put cgroup id %d in tracked_cgroups map: %w", cgroupID, err)
 	}
 	return nil
@@ -29,17 +29,13 @@ func (kernelIO *LinuxKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(ctx context.
 	return nil
 }
 
-func (kernelIO *LinuxKernelIO) PutCgroupBasenameInStagingMap(ctx context.Context, basename string) error {
+func (kernelIO *LinuxKernelIO) PutCgroupBasenameInStagingMap(ctx context.Context, basename string, netBlockToken uint32) error {
 	_ = ctx
 	key, err := fixedStagingMapKey([]byte(basename))
 	if err != nil {
 		return err
 	}
-	value, err := fixedStagingMapValue(nil)
-	if err != nil {
-		return err
-	}
-	if err := kernelIO.objs.StagingMap.Update(key, value, ebpf.UpdateAny); err != nil {
+	if err := kernelIO.objs.StagingMap.Update(key, netBlockToken, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("put cgroup basename %q in staging_map: %w", basename, err)
 	}
 	return nil
@@ -61,16 +57,22 @@ func (kernelIO *LinuxKernelIO) DeleteCgroupBasenamesFromStagingMap(ctx context.C
 }
 
 func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64) (bool, error) {
+	_, tracked, err := kernelIO.TestOnlyLookupNetBlockToken(ctx, cgroupID)
+	return tracked, err
+}
+
+// TestOnlyLookupNetBlockToken returns the network block token stored with a
+// tracked cgroup, and whether the cgroup is tracked at all.
+func (kernelIO *LinuxKernelIO) TestOnlyLookupNetBlockToken(ctx context.Context, cgroupID uint64) (token uint32, tracked bool, err error) {
 	_ = ctx
-	var value uint8
-	err := kernelIO.objs.TrackedCgroups.Lookup(cgroupID, &value)
+	err = kernelIO.objs.TrackedCgroups.Lookup(cgroupID, &token)
 	if errors.Is(err, ebpf.ErrKeyNotExist) {
-		return false, nil
+		return 0, false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("lookup cgroup id %d in tracked_cgroups map: %w", cgroupID, err)
+		return 0, false, fmt.Errorf("lookup cgroup id %d in tracked_cgroups map: %w", cgroupID, err)
 	}
-	return true, nil
+	return token, true, nil
 }
 
 func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupBasenameInStagingMap(ctx context.Context, basename string) (bool, error) {
@@ -79,7 +81,7 @@ func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupBasenameInStagingMap(ctx cont
 	if err != nil {
 		return false, err
 	}
-	var value [StagingValueLen]byte
+	var value uint32
 	err = kernelIO.objs.StagingMap.Lookup(key, &value)
 	if errors.Is(err, ebpf.ErrKeyNotExist) {
 		return false, nil
@@ -100,16 +102,6 @@ func fixedStagingMapKey(key []byte) ([]byte, error) {
 	// staging_map uses char[STAGING_KEY_LEN], so short basenames must be zero-padded.
 	fixed := make([]byte, StagingKeyLen)
 	copy(fixed, key)
-	return fixed, nil
-}
-
-func fixedStagingMapValue(value []byte) ([]byte, error) {
-	if len(value) > StagingValueLen {
-		return nil, fmt.Errorf("staging_map value must be at most %d bytes, got %d", StagingValueLen, len(value))
-	}
-	// The current BPF hook only checks lookup hits; zero value is the intended v1 payload.
-	fixed := make([]byte, StagingValueLen)
-	copy(fixed, value)
 	return fixed, nil
 }
 

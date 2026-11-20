@@ -6,6 +6,7 @@ import (
 
 	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/jobevent"
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 // engineEffect is side-effect work produced after jobTrackingState changes.
@@ -85,6 +86,21 @@ type stageCgroupBasename struct {
 
 func (stageCgroupBasename) sealedEngineEffect() {}
 
+type installNetBlockProgram struct {
+	JobID   jobcontext.JobIdentity
+	Program netblock.Program
+	Reply   chan<- error
+}
+
+func (installNetBlockProgram) sealedEngineEffect() {}
+
+type replySetNetBlockProgram struct {
+	Reply chan<- error
+	Err   error
+}
+
+func (replySetNetBlockProgram) sealedEngineEffect() {}
+
 type removeJobFromKernel struct {
 	JobID   jobcontext.JobIdentity
 	Cgroups []uint64
@@ -149,19 +165,26 @@ func (engine *KernelTracker) runEngineEffects(ctx context.Context, effects []eng
 				engine.jobEndNotifier.OnJobEnded(value.JobID, value.Reason)
 			}
 		case bindTrackedCgroup:
-			err := engine.kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, value.CgroupID)
+			err := engine.kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, value.CgroupID, engine.jobTracking.netBlock.tokenFor(value.JobID))
 			if err == nil && !engine.jobTracking.bind(value.JobID, value.CgroupID) {
 				err = fmt.Errorf("cgroup %d already bound to another job", value.CgroupID)
 			}
 			value.Reply <- err
 		case stageCgroupBasename:
-			err := engine.kernelIO.PutCgroupBasenameInStagingMap(ctx, value.Basename)
+			err := engine.kernelIO.PutCgroupBasenameInStagingMap(ctx, value.Basename, engine.jobTracking.netBlock.tokenFor(value.JobID))
 			if err == nil && !engine.jobTracking.putStaging(value.Basename, value.JobID) {
 				err = fmt.Errorf("staging basename %q already belongs to another job", value.Basename)
 			}
 			value.Reply <- err
+		case installNetBlockProgram:
+			value.Reply <- engine.kernelIO.InstallNetBlockProgram(ctx, engine.jobTracking.netBlock.tokenFor(value.JobID), value.Program)
+		case replySetNetBlockProgram:
+			value.Reply <- value.Err
 		case removeJobFromKernel:
 			err := engine.deleteJobKernelMapEntries(ctx, value.Cgroups, value.Staging)
+			if err == nil {
+				err = engine.kernelIO.DeleteNetBlockProgram(ctx, engine.jobTracking.netBlock.tokenFor(value.JobID))
+			}
 			if err == nil {
 				engine.logEventDeliverySummary(ctx, value.JobID)
 				channel := engine.jobTracking.removeJob(value.JobID)

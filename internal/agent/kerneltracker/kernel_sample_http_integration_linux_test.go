@@ -173,7 +173,7 @@ func trackTestProcessCgroup(t *testing.T, ctx context.Context, kernelIO *kerneli
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("put tracked cgroup: %v", err)
 	}
 	t.Cleanup(func() {

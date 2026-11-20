@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	bpfprog "github.com/cicd-sensor/cicd-sensor/internal/agent/bpf/generated"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/moby/sys/mountinfo"
@@ -148,7 +147,8 @@ func TestLinuxKernelIOTrackedCgroupsMapOperations(t *testing.T) {
 	ctx := context.Background()
 	const cgroupID = uint64(0x123456789)
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	const netBlockToken = uint32(7)
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, netBlockToken); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap: %v", err)
 	}
 	found, err := kernelIO.TestOnlyLookupCgroupIDInTrackedCgroupsMap(ctx, cgroupID)
@@ -158,12 +158,12 @@ func TestLinuxKernelIOTrackedCgroupsMapOperations(t *testing.T) {
 	if !found {
 		t.Fatalf("tracked cgroup lookup after put: got false, want true")
 	}
-	var got uint8
+	var got uint32
 	if err := kernelIO.objs.TrackedCgroups.Lookup(cgroupID, &got); err != nil {
 		t.Fatalf("lookup tracked cgroup: %v", err)
 	}
-	if got != 1 {
-		t.Fatalf("tracked cgroup value: got %d, want 1", got)
+	if got != netBlockToken {
+		t.Fatalf("tracked cgroup value: got %d, want network block token %d", got, netBlockToken)
 	}
 
 	if err := kernelIO.DeleteCgroupIDsFromTrackedCgroupsMap(ctx, []uint64{cgroupID}); err != nil {
@@ -201,7 +201,7 @@ func TestLinuxKernelIOStagingMapOperations(t *testing.T) {
 		t.Fatalf("fixedStagingMapKey: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename); err != nil {
+	if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename, 7); err != nil {
 		t.Fatalf("PutCgroupBasenameInStagingMap: %v", err)
 	}
 	found, err := kernelIO.TestOnlyLookupCgroupBasenameInStagingMap(ctx, basename)
@@ -211,12 +211,12 @@ func TestLinuxKernelIOStagingMapOperations(t *testing.T) {
 	if !found {
 		t.Fatalf("staging lookup after put: got false, want true")
 	}
-	var got bpfprog.BPFProgramStagingValue
+	var got uint32
 	if err := kernelIO.objs.StagingMap.Lookup(fixedKey, &got); err != nil {
 		t.Fatalf("lookup staging entry: %v", err)
 	}
-	if got.JobIdLo != 0 || got.JobIdHi != 0 {
-		t.Fatalf("staging value: got %+v, want zero value", got)
+	if got != 7 {
+		t.Fatalf("staging value: got %d, want network block token 7", got)
 	}
 
 	if err := kernelIO.DeleteCgroupBasenamesFromStagingMap(ctx, []string{basename}); err != nil {

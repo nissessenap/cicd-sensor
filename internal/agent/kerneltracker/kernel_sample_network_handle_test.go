@@ -32,8 +32,8 @@ func TestHandleNetConnectV4Sample_EmitsPayloadAndBlockTag(t *testing.T) {
 		t.Fatalf("kind = %q, want %q", emit.Record.EventType, jobevent.NetworkConnect)
 	}
 	assertNetworkConnectPayload(t, emit.Record, "192.0.2.10", 443, "tcp", "ipv4")
-	if got := emit.Record.Tags["block_source"]; got != "kernel" {
-		t.Fatalf("block_source tag = %q, want kernel", got)
+	if !emit.Record.BlockedByKernel() {
+		t.Fatalf("tags = %v, want the record marked as blocked by the kernel", emit.Record.Tags)
 	}
 }
 
@@ -61,8 +61,8 @@ func TestHandleNetConnectV6Sample_EmitsPayload(t *testing.T) {
 		t.Fatalf("kind = %q, want %q", emit.Record.EventType, jobevent.NetworkConnect)
 	}
 	assertNetworkConnectPayload(t, emit.Record, "2001:db8::1", 53, "udp", "ipv6")
-	if got := emit.Record.Tags["block_source"]; got != "" {
-		t.Fatalf("block_source tag = %q, want empty", got)
+	if emit.Record.BlockedByKernel() {
+		t.Fatalf("tags = %v, want an allowed connect left unmarked", emit.Record.Tags)
 	}
 }
 

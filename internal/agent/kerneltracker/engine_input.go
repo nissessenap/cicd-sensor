@@ -5,6 +5,7 @@ import (
 
 	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/jobevent"
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 // engineInput is one item serialized through the job tracking loop.
@@ -52,6 +53,14 @@ type commandStageCgroupBasename struct {
 }
 
 func (commandStageCgroupBasename) sealedEngineInput() {}
+
+type commandSetNetBlockProgram struct {
+	JobID   jobcontext.JobIdentity
+	Program netblock.Program
+	Reply   chan<- error
+}
+
+func (commandSetNetBlockProgram) sealedEngineInput() {}
 
 type commandFindJobForCgroup struct {
 	CgroupID uint64

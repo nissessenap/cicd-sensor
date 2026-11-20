@@ -238,3 +238,61 @@ func TestCompileSetSkipsWhitespaceOnlyExceptions(t *testing.T) {
 		t.Fatalf("compile error count: got %d, want 0", len(compileErrors))
 	}
 }
+
+func TestCompileSetChecksBlockRulesAreKernelEvaluable(t *testing.T) {
+	t.Parallel()
+
+	env, err := celengine.NewEnv()
+	if err != nil {
+		t.Fatalf("new env: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		rule       rule.Rule
+		wantReason string
+		wantSource string
+	}{
+		{
+			name: "destination-only block rule is accepted",
+			rule: rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `inIpRange(remote_ip, "10.0.0.0/8")`, Exceptions: `remote_port == 443`, Action: rule.RuleActionBlock},
+		},
+		{
+			name:       "block condition using process context names the field",
+			rule:       rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `process.exec_path == "/usr/bin/curl"`, Action: rule.RuleActionBlock},
+			wantReason: "process.exec_path",
+			wantSource: `process.exec_path == "/usr/bin/curl"`,
+		},
+		{
+			name:       "block exception using process context names the field",
+			rule:       rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `remote_port == 443`, Exceptions: `process.exec_path == "/usr/bin/apt"`, Action: rule.RuleActionBlock},
+			wantReason: "process.exec_path",
+			wantSource: `process.exec_path == "/usr/bin/apt"`,
+		},
+		{
+			name: "the same condition stays valid for a terminate rule",
+			rule: rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `process.exec_path == "/usr/bin/curl"`, Action: rule.RuleActionTerminate},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			compileErrors := CompileSet(env, rule.RuleSet{RulesetID: "set-1", Rules: []rule.Rule{tc.rule}})
+			if tc.wantReason == "" {
+				if len(compileErrors) != 0 {
+					t.Fatalf("unexpected compile errors: %+v", compileErrors)
+				}
+				return
+			}
+			if len(compileErrors) != 1 {
+				t.Fatalf("compile error count: got %d, want 1 (%+v)", len(compileErrors), compileErrors)
+			}
+			if !strings.Contains(compileErrors[0].Reason, tc.wantReason) {
+				t.Fatalf("reason %q does not name %q", compileErrors[0].Reason, tc.wantReason)
+			}
+			if compileErrors[0].Source != tc.wantSource {
+				t.Fatalf("source = %q, want %q", compileErrors[0].Source, tc.wantSource)
+			}
+		})
+	}
+}

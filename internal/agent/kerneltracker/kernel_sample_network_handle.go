@@ -56,7 +56,7 @@ func handleNetConnectV4Sample(state *jobTrackingState, sample netConnectV4Sample
 		Tags: map[string]string{},
 	}
 	if sample.Blocked {
-		record.Tags["block_source"] = "kernel"
+		record.Tags[jobevent.TagBlockSource] = jobevent.BlockSourceKernel
 	}
 	return []engineEffect{emitEventRecord{JobID: jobID, Record: record}}
 }
@@ -84,7 +84,7 @@ func handleNetConnectV6Sample(state *jobTrackingState, sample netConnectV6Sample
 		Tags: map[string]string{},
 	}
 	if sample.Blocked {
-		record.Tags["block_source"] = "kernel"
+		record.Tags[jobevent.TagBlockSource] = jobevent.BlockSourceKernel
 	}
 	return []engineEffect{emitEventRecord{JobID: jobID, Record: record}}
 }

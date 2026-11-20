@@ -85,7 +85,30 @@ func TestValidateRuleSet(t *testing.T) {
 				RulesetID: "s",
 				Rules:     []rule.Rule{{RuleID: "r1", EventType: jobevent.ProcessExec, Condition: `process_name == "bash"`, Action: rule.RuleAction("alert")}},
 			},
-			wantErr: "action must be detect, terminate, or collect",
+			wantErr: "action must be detect, terminate, collect, or block",
+		},
+		{
+			name: "block action on network_connect",
+			set: rule.RuleSet{
+				RulesetID: "s",
+				Rules:     []rule.Rule{{RuleID: "r1", EventType: jobevent.NetworkConnect, Condition: `remote_port == 443`, Action: rule.RuleActionBlock}},
+			},
+		},
+		{
+			name: "block action on an event the connect hook cannot refuse",
+			set: rule.RuleSet{
+				RulesetID: "s",
+				Rules:     []rule.Rule{{RuleID: "r1", EventType: jobevent.Domain, Condition: `domain == "example.com"`, Action: rule.RuleActionBlock}},
+			},
+			wantErr: "rules[0]: action block is only valid on event_type network_connect",
+		},
+		{
+			name: "block action on a correlation rule",
+			set: rule.RuleSet{
+				RulesetID: "s",
+				Rules:     []rule.Rule{{RuleID: "r1", Type: "correlation", EventType: jobevent.NetworkConnect, Condition: `rule.a.total_count > 0`, Action: rule.RuleActionBlock}},
+			},
+			wantErr: "rules[0]: action block is only valid on event_type network_connect",
 		},
 		{
 			name: "duplicate rule_id",
@@ -317,6 +340,15 @@ func TestValidateRuleModifier(t *testing.T) {
 				Targets:    []rule.RuleModifierTarget{{RuleID: "r1"}},
 			},
 			wantErr: "ruleset_id is required",
+		},
+		{
+			name: "override_action block could make any rule a block rule",
+			mod: rule.RuleModifier{
+				ModifierID:     "m1",
+				Targets:        []rule.RuleModifierTarget{{RulesetID: "s1"}},
+				OverrideAction: actionPtr(rule.RuleActionBlock),
+			},
+			wantErr: "override_action: block is not supported",
 		},
 		{
 			name: "negative override_max_alerts",

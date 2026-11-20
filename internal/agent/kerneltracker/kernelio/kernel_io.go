@@ -3,6 +3,8 @@ package kernelio
 import (
 	"context"
 	"errors"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 var ErrNotSupported = errors.New("not supported")
@@ -18,10 +20,18 @@ type Config struct {
 // KernelIO is the BPF program/map/ringbuf I/O boundary. It stays as an
 // interface so engine loop tests can run without loading kernel programs.
 type KernelIO interface {
-	PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64) error
+	// netBlockToken is stored with the tracking entry and inherited in-kernel
+	// by child and staged cgroups; 0 means blocking is disabled.
+	PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64, netBlockToken uint32) error
 	DeleteCgroupIDsFromTrackedCgroupsMap(ctx context.Context, cgroupIDs []uint64) error
-	PutCgroupBasenameInStagingMap(ctx context.Context, basename string) error
+	PutCgroupBasenameInStagingMap(ctx context.Context, basename string, netBlockToken uint32) error
 	DeleteCgroupBasenamesFromStagingMap(ctx context.Context, basenames []string) error
+	// InstallNetBlockProgram makes program the one the connect hooks
+	// evaluate for cgroups carrying token, replacing any earlier one.
+	InstallNetBlockProgram(ctx context.Context, token uint32, program netblock.Program) error
+	// DeleteNetBlockProgram stops enforcement for token. A token without a
+	// program is not an error.
+	DeleteNetBlockProgram(ctx context.Context, token uint32) error
 	// QueueHTTPUprobeReconciliation takes ownership of an active userspace
 	// cgroup-ID snapshot and schedules a non-blocking maps-liveness sweep.
 	// It is a no-op when HTTP uprobe capture is disabled.
@@ -41,6 +51,5 @@ const (
 	TrackedCgroupsMapName = "tracked_cgroups"
 	StagingMapName        = "staging_map"
 	StagingKeyLen         = 256
-	StagingValueLen       = 16
 	StagingMaxEntries     = 1024
 )

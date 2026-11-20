@@ -67,6 +67,8 @@ type JobRegistry struct {
 	jobTTL time.Duration
 	// starting hides half-created jobs and serializes duplicate start requests.
 	starting map[jobcontext.JobIdentity]chan struct{}
+	// networkBlockEnabled mirrors the agent's --enable-network-block flag.
+	networkBlockEnabled bool
 	// removeJobHook replaces KernelTracker.RemoveJob during finalize when set (tests only).
 	removeJobHook func(context.Context, jobcontext.JobIdentity) error
 }

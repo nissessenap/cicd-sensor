@@ -7,13 +7,22 @@ import (
 	"testing"
 
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/kerneltracker/kernelio"
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 // noopKernelIO and recordingKernelIO are KernelTracker test doubles for the
 // KernelIO boundary; they are not KernelIO implementation tests.
 type noopKernelIO struct{}
 
-func (noopKernelIO) PutCgroupIDInTrackedCgroupsMap(context.Context, uint64) error {
+func (noopKernelIO) PutCgroupIDInTrackedCgroupsMap(context.Context, uint64, uint32) error {
+	return nil
+}
+
+func (noopKernelIO) InstallNetBlockProgram(context.Context, uint32, netblock.Program) error {
+	return nil
+}
+
+func (noopKernelIO) DeleteNetBlockProgram(context.Context, uint32) error {
 	return nil
 }
 
@@ -21,7 +30,7 @@ func (noopKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(context.Context, []uint
 	return nil
 }
 
-func (noopKernelIO) PutCgroupBasenameInStagingMap(context.Context, string) error {
+func (noopKernelIO) PutCgroupBasenameInStagingMap(context.Context, string, uint32) error {
 	return nil
 }
 
@@ -46,12 +55,40 @@ type recordingKernelIO struct {
 	putStagingErr    error
 	deleteStagingErr error
 	closeErr         error
+	installErr       error
+	deleteProgramErr error
 
 	startCalls    int
 	putTracked    []uint64
 	deleteTracked []uint64
 	putStaging    []string
 	deleteStaging []string
+	// putTrackedTokens and putStagingTokens are parallel to putTracked / putStaging.
+	putTrackedTokens []uint32
+	putStagingTokens []uint32
+	installs         []netBlockInstall
+	deletedPrograms  []uint32
+}
+
+type netBlockInstall struct {
+	token   uint32
+	program netblock.Program
+}
+
+func (kernelIO *recordingKernelIO) InstallNetBlockProgram(_ context.Context, token uint32, program netblock.Program) error {
+	if kernelIO.installErr != nil {
+		return kernelIO.installErr
+	}
+	kernelIO.installs = append(kernelIO.installs, netBlockInstall{token: token, program: program})
+	return nil
+}
+
+func (kernelIO *recordingKernelIO) DeleteNetBlockProgram(_ context.Context, token uint32) error {
+	if kernelIO.deleteProgramErr != nil {
+		return kernelIO.deleteProgramErr
+	}
+	kernelIO.deletedPrograms = append(kernelIO.deletedPrograms, token)
+	return nil
 }
 
 func (kernelIO *recordingKernelIO) StartKernelSampleLoop(context.Context, kernelio.KernelSampleHandler) error {
@@ -62,11 +99,12 @@ func (kernelIO *recordingKernelIO) StartKernelSampleLoop(context.Context, kernel
 	return kernelio.ErrNotSupported
 }
 
-func (kernelIO *recordingKernelIO) PutCgroupIDInTrackedCgroupsMap(_ context.Context, cgroupID uint64) error {
+func (kernelIO *recordingKernelIO) PutCgroupIDInTrackedCgroupsMap(_ context.Context, cgroupID uint64, netBlockToken uint32) error {
 	if kernelIO.putTrackedErr != nil {
 		return kernelIO.putTrackedErr
 	}
 	kernelIO.putTracked = append(kernelIO.putTracked, cgroupID)
+	kernelIO.putTrackedTokens = append(kernelIO.putTrackedTokens, netBlockToken)
 	return nil
 }
 
@@ -78,11 +116,12 @@ func (kernelIO *recordingKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(_ contex
 	return nil
 }
 
-func (kernelIO *recordingKernelIO) PutCgroupBasenameInStagingMap(_ context.Context, basename string) error {
+func (kernelIO *recordingKernelIO) PutCgroupBasenameInStagingMap(_ context.Context, basename string, netBlockToken uint32) error {
 	if kernelIO.putStagingErr != nil {
 		return kernelIO.putStagingErr
 	}
 	kernelIO.putStaging = append(kernelIO.putStaging, basename)
+	kernelIO.putStagingTokens = append(kernelIO.putStagingTokens, netBlockToken)
 	return nil
 }
 

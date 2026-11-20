@@ -244,6 +244,31 @@ type BPFProgramMountSample struct {
 	TargetPath      [1024]int8
 }
 
+type BPFProgramNetBlockProgram struct {
+	_         structs.HostLayout
+	InsnCount uint32
+	Insns     [64]struct {
+		_     structs.HostLayout
+		Value struct {
+			_        structs.HostLayout
+			Addr     [4]uint32
+			Port     uint16
+			Protocol uint8
+			Pad      uint8
+		}
+		Mask struct {
+			_        structs.HostLayout
+			Addr     [4]uint32
+			Port     uint16
+			Protocol uint8
+			Pad      uint8
+		}
+		Truth uint8
+		Pop   uint8
+		Pad   uint16
+	}
+}
+
 type BPFProgramNetV4Sample struct {
 	_             structs.HostLayout
 	Kind          uint32
@@ -282,12 +307,6 @@ type BPFProgramPathScratch struct {
 	Buf [1280]int8
 }
 
-type BPFProgramStagingValue struct {
-	_       structs.HostLayout
-	JobIdLo uint64
-	JobIdHi uint64
-}
-
 type BPFProgramUnixSocketConnectSample struct {
 	_                structs.HostLayout
 	Kind             uint32
@@ -316,6 +335,7 @@ const (
 	BPFProgramMapHttpStages                            = "http_stages"
 	BPFProgramMapHttpUprobeDiscoveryCache              = "http_uprobe_discovery_cache"
 	BPFProgramMapHttpUprobeStages                      = "http_uprobe_stages"
+	BPFProgramMapNetBlockPrograms                      = "net_block_programs"
 	BPFProgramMapPathScratch                           = "path_scratch"
 	BPFProgramMapRingbufDropCount                      = "ringbuf_drop_count"
 	BPFProgramMapStagingMap                            = "staging_map"
@@ -367,7 +387,6 @@ const (
 	BPFProgramVarUnusedMountSample                     = "unused_mount_sample"
 	BPFProgramVarUnusedNetV4Sample                     = "unused_net_v4_sample"
 	BPFProgramVarUnusedNetV6Sample                     = "unused_net_v6_sample"
-	BPFProgramVarUnusedStagingValue                    = "unused_staging_value"
 	BPFProgramVarUnusedUnixSocketConnectSample         = "unused_unix_socket_connect_sample"
 )
 
@@ -456,6 +475,7 @@ type BPFProgramMapSpecs struct {
 	HttpStages               *ebpf.MapSpec `ebpf:"http_stages"`
 	HttpUprobeDiscoveryCache *ebpf.MapSpec `ebpf:"http_uprobe_discovery_cache"`
 	HttpUprobeStages         *ebpf.MapSpec `ebpf:"http_uprobe_stages"`
+	NetBlockPrograms         *ebpf.MapSpec `ebpf:"net_block_programs"`
 	PathScratch              *ebpf.MapSpec `ebpf:"path_scratch"`
 	RingbufDropCount         *ebpf.MapSpec `ebpf:"ringbuf_drop_count"`
 	StagingMap               *ebpf.MapSpec `ebpf:"staging_map"`
@@ -481,7 +501,6 @@ type BPFProgramVariableSpecs struct {
 	UnusedMountSample                     *ebpf.VariableSpec `ebpf:"unused_mount_sample"`
 	UnusedNetV4Sample                     *ebpf.VariableSpec `ebpf:"unused_net_v4_sample"`
 	UnusedNetV6Sample                     *ebpf.VariableSpec `ebpf:"unused_net_v6_sample"`
-	UnusedStagingValue                    *ebpf.VariableSpec `ebpf:"unused_staging_value"`
 	UnusedUnixSocketConnectSample         *ebpf.VariableSpec `ebpf:"unused_unix_socket_connect_sample"`
 }
 
@@ -510,6 +529,7 @@ type BPFProgramMaps struct {
 	HttpStages               *ebpf.Map `ebpf:"http_stages"`
 	HttpUprobeDiscoveryCache *ebpf.Map `ebpf:"http_uprobe_discovery_cache"`
 	HttpUprobeStages         *ebpf.Map `ebpf:"http_uprobe_stages"`
+	NetBlockPrograms         *ebpf.Map `ebpf:"net_block_programs"`
 	PathScratch              *ebpf.Map `ebpf:"path_scratch"`
 	RingbufDropCount         *ebpf.Map `ebpf:"ringbuf_drop_count"`
 	StagingMap               *ebpf.Map `ebpf:"staging_map"`
@@ -523,6 +543,7 @@ func (m *BPFProgramMaps) Close() error {
 		m.HttpStages,
 		m.HttpUprobeDiscoveryCache,
 		m.HttpUprobeStages,
+		m.NetBlockPrograms,
 		m.PathScratch,
 		m.RingbufDropCount,
 		m.StagingMap,
@@ -549,7 +570,6 @@ type BPFProgramVariables struct {
 	UnusedMountSample                     *ebpf.Variable `ebpf:"unused_mount_sample"`
 	UnusedNetV4Sample                     *ebpf.Variable `ebpf:"unused_net_v4_sample"`
 	UnusedNetV6Sample                     *ebpf.Variable `ebpf:"unused_net_v6_sample"`
-	UnusedStagingValue                    *ebpf.Variable `ebpf:"unused_staging_value"`
 	UnusedUnixSocketConnectSample         *ebpf.Variable `ebpf:"unused_unix_socket_connect_sample"`
 }
 

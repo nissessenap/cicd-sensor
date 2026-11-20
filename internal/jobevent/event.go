@@ -34,6 +34,13 @@ type ProcessSummary struct {
 	Ancestors     []AncestorProcess `json:"ancestors,omitempty"`
 }
 
+// TagBlockSource marks an event whose operation was refused before it took
+// effect; the value names what refused it.
+const (
+	TagBlockSource    = "block_source"
+	BlockSourceKernel = "kernel"
+)
+
 // EventRecord is the per-job rule evaluation input emitted by KernelTracker.
 type EventRecord struct {
 	ID        string            `json:"id,omitempty"`
@@ -42,4 +49,10 @@ type EventRecord struct {
 	Payload   map[string]any    `json:"payload,omitempty"`
 	Process   ProcessSummary    `json:"process"`
 	Tags      map[string]string `json:"-"`
+}
+
+// BlockedByKernel reports whether the kernel refused the operation this
+// event describes.
+func (e EventRecord) BlockedByKernel() bool {
+	return e.Tags[TagBlockSource] == BlockSourceKernel
 }

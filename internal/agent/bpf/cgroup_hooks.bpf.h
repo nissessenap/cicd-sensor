@@ -20,13 +20,13 @@ static __always_inline bool match_staging_and_track_cgroup(struct cgroup *cgrp, 
     if (n <= 1)
         return false;
 
-    struct staging_value *val = bpf_map_lookup_elem(&staging_map, key);
+    __u32 *val = bpf_map_lookup_elem(&staging_map, key);
     if (!val)
         return false;
 
     // Make the kernel map reflect ownership before userspace mirrors it.
-    __u8 one = 1;
-    if (bpf_map_update_elem(&tracked_cgroups, &cgroup_id, &one, BPF_ANY) != 0)
+    __u32 net_block_token = *val;
+    if (bpf_map_update_elem(&tracked_cgroups, &cgroup_id, &net_block_token, BPF_ANY) != 0)
         return false;
 
     bpf_map_delete_elem(&staging_map, key);
@@ -39,11 +39,13 @@ int BPF_PROG(handle_cgroup_mkdir, struct cgroup *cgrp, const char *path)
     __u64 cgroup_id = cgroup_id_from_cgroup(cgrp);
     __u64 parent_cgroup_id = parent_cgroup_id_from_cgroup(cgrp);
     __u8 staging_matched = 0;
-    __u8 one = 1;
+    __u32 *parent_token = bpf_map_lookup_elem(&tracked_cgroups, &parent_cgroup_id);
 
-    if (cgroup_is_tracked(parent_cgroup_id)) {
-        // Track child cgroups before userspace observes the mkdir.
-        if (bpf_map_update_elem(&tracked_cgroups, &cgroup_id, &one, BPF_ANY) != 0)
+    if (parent_token) {
+        // Track child cgroups before userspace observes the mkdir. The value
+        // is copied, not constant: it carries the Job's network block token.
+        __u32 net_block_token = *parent_token;
+        if (bpf_map_update_elem(&tracked_cgroups, &cgroup_id, &net_block_token, BPF_ANY) != 0)
             return 0;
     } else {
         // Sibling-container fallback: an untracked parent may have a staged child basename.
@@ -77,8 +79,8 @@ int BPF_PROG(handle_cgroup_attach_task, struct cgroup *dst_cgrp, struct task_str
     struct cgroup *old_cgrp;
     __u64 source_cgroup_id;
     __u64 destination_cgroup_id;
-    __u8 *source_tracked;
-    __u8 *destination_tracked;
+    __u32 *source_tracked;
+    __u32 *destination_tracked;
 
     (void)threadgroup;
 
@@ -97,10 +99,11 @@ int BPF_PROG(handle_cgroup_attach_task, struct cgroup *dst_cgrp, struct task_str
     destination_cgroup_id = cgroup_id_from_cgroup(dst_cgrp);
     destination_tracked = bpf_map_lookup_elem(&tracked_cgroups, &destination_cgroup_id);
 
-    // Track the destination before later samples hit cgroup_is_tracked().
+    // Track the destination before later samples hit cgroup_is_tracked(). The
+    // value is copied, not constant: it carries the Job's network block token.
     if (!destination_tracked) {
-        __u8 one = 1;
-        if (bpf_map_update_elem(&tracked_cgroups, &destination_cgroup_id, &one, BPF_ANY) != 0)
+        __u32 net_block_token = *source_tracked;
+        if (bpf_map_update_elem(&tracked_cgroups, &destination_cgroup_id, &net_block_token, BPF_ANY) != 0)
             return 0;
     }
 

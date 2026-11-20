@@ -6,7 +6,7 @@
 static __always_inline __u8 cgroup_is_tracked(__u64 cgroup_id)
 {
     // tracked_cgroups is the kernel-side source of truth for event filtering.
-    __u8 *value = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
+    __u32 *value = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
     if (value)
         return 1;
     return 0;

@@ -87,14 +87,34 @@ struct {
     __type(value, __u32);
 } http_uprobe_stages SEC(".maps");
 
-// The hook only checks staging_map lookup hits; this value is reserved for a
-// future kernel path that may surface JobIdentity without userspace lookup.
-struct staging_value {
-    __u64 job_id_lo;
-    __u64 job_id_hi;
+// Bounds the verifier-visible evaluation loop. Must match netblock.MaxInsns.
+#define NET_BLOCK_MAX_INSNS 64
+
+// A connect destination, or a value / mask over one.
+struct net_block_tuple {
+    __u32 addr[4]; // network byte order; IPv4 as ::ffff:a.b.c.d
+    __u16 port;    // host byte order
+    __u8 protocol;
+    __u8 _pad;
 };
 
-const volatile struct staging_value *unused_staging_value;
+// Must match netblock.Insn: pop `pop` stack entries, push
+// truth[match << 2 | second << 1 | top].
+struct net_block_insn {
+    struct net_block_tuple value;
+    struct net_block_tuple mask;
+    __u8 truth;
+    __u8 pop;
+    __u16 _pad;
+};
+
+// One Job's block rules as a postfix boolean expression. Userspace validates
+// the stack discipline; the kernel only bounds the loop.
+struct net_block_program {
+    __u32 insn_count;
+    struct net_block_insn insns[NET_BLOCK_MAX_INSNS];
+};
+
 
 struct {
     // Ringbuf requires 5.8+; our 5.15+ baseline guarantees it.
@@ -103,12 +123,26 @@ struct {
     __uint(max_entries, 1 << 20);
 } events SEC(".maps");
 
+// Value is the Job's network block token, 0 when blocking is disabled. It
+// rides on the tracking entry so child cgroups inherit enforcement in the
+// same map update that starts tracking them.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, __u64);
-    __type(value, __u8);
+    __type(value, __u32);
 } tracked_cgroups SEC(".maps");
+
+// token -> the Job's block program. Tokens are never reused, so a tracking
+// entry that outlives its Job points at nothing. Not preallocated: the value
+// is large and most Jobs have no program.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(max_entries, 4096);
+    __type(key, __u32);
+    __type(value, struct net_block_program);
+} net_block_programs SEC(".maps");
 
 // Per-CPU path workspace. FILE_PATH_LEN does not fit on the 512B BPF stack.
 // Call sites still NULL-check lookup results because the verifier requires it.
@@ -143,12 +177,12 @@ struct {
     __type(value, __u8);
 } http_uprobe_discovery_cache SEC(".maps");
 
-// staging_map: basename -> staging_value. Userspace stages sibling-container
+// staging_map: basename -> network block token. Userspace stages sibling-container
 // basenames; cgroup_mkdir promotes and deletes matching entries in-kernel.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     // Userspace sets the real cap on CollectionSpec before load.
     __uint(max_entries, 1);
     __type(key, char[STAGING_KEY_LEN]);
-    __type(value, struct staging_value);
+    __type(value, __u32);
 } staging_map SEC(".maps");

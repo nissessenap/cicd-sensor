@@ -160,7 +160,7 @@ func TestResolve_ModifierCanEscalateAction(t *testing.T) {
 	}
 }
 
-func TestResolve_MonitorModeDowngradesTerminateActions(t *testing.T) {
+func TestResolve_MonitorModeDowngradesEnforcingActions(t *testing.T) {
 	tests := []struct {
 		name       string
 		monitor    bool
@@ -183,6 +183,17 @@ func TestResolve_MonitorModeDowngradesTerminateActions(t *testing.T) {
 			name:       "enabled leaves detect rule unchanged",
 			monitor:    true,
 			rule:       testRule("r1", jobevent.ProcessExec, rule.RuleActionDetect),
+			wantAction: rule.RuleActionDetect,
+		},
+		{
+			name:       "disabled leaves block rule unchanged",
+			rule:       testRule("r1", jobevent.NetworkConnect, rule.RuleActionBlock),
+			wantAction: rule.RuleActionBlock,
+		},
+		{
+			name:       "enabled downgrades block rule to detect",
+			monitor:    true,
+			rule:       testRule("r1", jobevent.NetworkConnect, rule.RuleActionBlock),
 			wantAction: rule.RuleActionDetect,
 		},
 		{

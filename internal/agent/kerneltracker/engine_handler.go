@@ -11,6 +11,8 @@ func handleEngineInput(state *jobTrackingState, input engineInput) []engineEffec
 		return handleRemoveJob(state, value)
 	case commandStageCgroupBasename:
 		return handleStageCgroupBasename(state, value)
+	case commandSetNetBlockProgram:
+		return handleSetNetBlockProgram(state, value)
 	case commandFindJobForCgroup:
 		jobID, found := state.jobForCgroup(value.CgroupID)
 		return []engineEffect{replyJobForCgroup{

@@ -25,7 +25,7 @@ func TestLinuxKernelSampleCgroupTrackedMapOperation(t *testing.T) {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestLinuxKernelSampleCgroupLifecycle(t *testing.T) {
 		t.Fatalf("currentCgroupPath: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap parent cgroup: %v", err)
 	}
 	defer func() {
@@ -163,7 +163,7 @@ func TestLinuxKernelSampleCgroupRmdirLazyPurge(t *testing.T) {
 		t.Fatalf("currentCgroupPath: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap parent cgroup: %v", err)
 	}
 	t.Cleanup(func() {
@@ -265,7 +265,7 @@ func TestLinuxKernelSampleCgroupFinalRmdirRemoveJobCleanup(t *testing.T) {
 		_ = kernelIO.DeleteCgroupIDsFromTrackedCgroupsMap(context.Background(), []uint64{childCgroupID})
 	})
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, childCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, childCgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap child cgroup: %v", err)
 	}
 	jobID := jobcontext.GitLabJobIdentity("gitlab.com", "group/project", "123")
@@ -379,7 +379,7 @@ func TestLinuxKernelSampleCgroupAttachExternal(t *testing.T) {
 		t.Fatalf("currentCgroupPath: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap parent cgroup: %v", err)
 	}
 	t.Cleanup(func() {
@@ -522,13 +522,13 @@ func TestLinuxKernelSampleCgroupAttachAcrossTrackedJobs(t *testing.T) {
 		t.Fatalf("cgroupIDForPath(kernelIO, %q): %v", destinationPath, err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, sourceCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, sourceCgroupID, 0); err != nil {
 		t.Fatalf("put source cgroup: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = kernelIO.DeleteCgroupIDsFromTrackedCgroupsMap(context.Background(), []uint64{sourceCgroupID})
 	})
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, destinationCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, destinationCgroupID, 0); err != nil {
 		t.Fatalf("put destination cgroup: %v", err)
 	}
 	t.Cleanup(func() {
@@ -605,7 +605,7 @@ func TestLinuxKernelSampleCgroupStagingMatchTracksAndConsumesStaging(t *testing.
 	}
 
 	basename := fmt.Sprintf("docker-cicd-staged-%d.scope", time.Now().UnixNano())
-	if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename); err != nil {
+	if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename, 0); err != nil {
 		t.Fatalf("PutCgroupBasenameInStagingMap: %v", err)
 	}
 	t.Cleanup(func() {

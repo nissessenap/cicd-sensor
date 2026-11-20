@@ -30,7 +30,7 @@ func TestLinuxKernelSampleForkEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap parent cgroup: %v", err)
 	}
 	defer func() {
@@ -94,7 +94,7 @@ func TestLinuxKernelSampleExecFlow(t *testing.T) {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
 
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, parentCgroupID, 0); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap parent cgroup: %v", err)
 	}
 	defer func() {

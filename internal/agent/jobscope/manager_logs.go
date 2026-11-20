@@ -84,7 +84,9 @@ func (s *JobScopeState) WriteDetectionLogForHit(ctx context.Context, identity jo
 	switch hit.Action {
 	case string(rule.RuleActionTerminate):
 		s.writeDetectionLog(ctx, identity, metadata, runnerType, &hit, event, logger, "")
-	case string(rule.RuleActionDetect), string(rule.RuleActionCollect):
+	// Block shares the max_alerts cap: a retry loop against a blocked
+	// destination must not turn into one Detection Log per attempt.
+	case string(rule.RuleActionDetect), string(rule.RuleActionCollect), string(rule.RuleActionBlock):
 		if hit.MaxAlerts <= 0 {
 			s.writeDetectionLog(ctx, identity, metadata, runnerType, &hit, event, logger, "")
 			return

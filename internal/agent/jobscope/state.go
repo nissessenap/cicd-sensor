@@ -33,7 +33,7 @@ type JobScopeState struct {
 	debugOutput    *joblogs.DebugOutput
 	// Zero means this scope did not configure a default; rule.Resolve uses the system fallback.
 	DefaultMaxAlertsPerRule int
-	// MonitorMode downgrades terminate actions to detect when rules are resolved.
+	// MonitorMode downgrades terminate and block actions to detect when rules are resolved.
 	MonitorMode bool
 }
 
