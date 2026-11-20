@@ -86,8 +86,13 @@ The Manager holds the rule bundle, but it does not evaluate runtime events.
 
 ## Log ingest and outputs
 
-Agents send Summary Logs, Detection Logs, and Runtime Event Logs to `CollectorService.IngestLog` as gzip-compressed JSONL batches.
+Agents send Summary Logs, Detection Logs, Runtime Event Logs, and Job Start Logs to `CollectorService.IngestLog` as gzip-compressed JSONL batches.
 The Manager delivers them to sinks such as S3, GCS, Azure Blob, or Pub/Sub according to the routing policy for each log type.
+
+An Agent sends a log type only when the Manager routes it: `FetchConfig` returns an enabled `OutputSetting` for each routed type.
+Job Start Logs use the same mechanism as their opt-in.
+`OutputSettings.job_start` stays unset unless `logs.job_start.sink` is configured, so existing deployments see no new record.
+The Agent sends the start record immediately and ignores any batching policy for it, because the record is only useful if it leaves the runner before the job can stop the Agent.
 
 The Manager treats the log batch as the delivery unit.
 It does not interpret runtime events or evaluate detections.

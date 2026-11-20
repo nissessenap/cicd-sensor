@@ -47,6 +47,33 @@ func (s *JobScopeState) EmitSummaryLog(ctx context.Context, in SummaryLogInputs,
 	return s.managerJobLogs.EmitAndCloseSummaryLog(ctx, payload)
 }
 
+type JobStartLogInputs struct {
+	Identity   jobcontext.JobIdentity
+	Metadata   jobcontext.JobMetadata
+	RunnerType string
+}
+
+// EmitJobStartLog enqueues this scope's job start record when the scope's
+// manager routes the job_start log type. Delivery is asynchronous.
+func (s *JobScopeState) EmitJobStartLog(ctx context.Context, in JobStartLogInputs) error {
+	if s == nil || !s.managerJobLogs.HasJobStartLog() {
+		return nil
+	}
+	payload, err := joblogs.MarshalJobStartLogEntry(joblogs.JobStartLogInput{
+		ScopeLogContext: joblogs.ScopeLogContext{
+			Identity:       in.Identity,
+			Metadata:       s.logMetadata(in.Metadata),
+			RunnerType:     in.RunnerType,
+			Scope:          s.Type,
+			ConfigRevision: s.ConfigRevision,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return s.managerJobLogs.EmitJobStartLog(ctx, payload)
+}
+
 // logMetadata fills the check run ID this scope was started with when the
 // Job's own metadata lacks it.
 func (s *JobScopeState) logMetadata(metadata jobcontext.JobMetadata) jobcontext.JobMetadata {

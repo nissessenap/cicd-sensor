@@ -34,6 +34,7 @@ const (
 	LogType_LOG_TYPE_DETECTION     LogType = 1
 	LogType_LOG_TYPE_RUNTIME_EVENT LogType = 2
 	LogType_LOG_TYPE_SUMMARY       LogType = 3
+	LogType_LOG_TYPE_JOB_START     LogType = 4
 )
 
 // Enum value maps for LogType.
@@ -43,12 +44,14 @@ var (
 		1: "LOG_TYPE_DETECTION",
 		2: "LOG_TYPE_RUNTIME_EVENT",
 		3: "LOG_TYPE_SUMMARY",
+		4: "LOG_TYPE_JOB_START",
 	}
 	LogType_value = map[string]int32{
 		"LOG_TYPE_UNSPECIFIED":   0,
 		"LOG_TYPE_DETECTION":     1,
 		"LOG_TYPE_RUNTIME_EVENT": 2,
 		"LOG_TYPE_SUMMARY":       3,
+		"LOG_TYPE_JOB_START":     4,
 	}
 )
 
@@ -327,12 +330,13 @@ const file_cicd_sensor_manager_v1beta1_collector_proto_rawDesc = "" +
 	"\x05batch\x18\x01 \x01(\v2+.cicd_sensor.manager.v1beta1.IngestLogBatchR\x05batch\"c\n" +
 	"\x11IngestLogResponse\x12)\n" +
 	"\x10received_batches\x18\x01 \x01(\x04R\x0freceivedBatches\x12#\n" +
-	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten*m\n" +
+	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten*\x85\x01\n" +
 	"\aLogType\x12\x18\n" +
 	"\x14LOG_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOG_TYPE_DETECTION\x10\x01\x12\x1a\n" +
 	"\x16LOG_TYPE_RUNTIME_EVENT\x10\x02\x12\x14\n" +
-	"\x10LOG_TYPE_SUMMARY\x10\x03*A\n" +
+	"\x10LOG_TYPE_SUMMARY\x10\x03\x12\x16\n" +
+	"\x12LOG_TYPE_JOB_START\x10\x04*A\n" +
 	"\x05Scope\x12\x15\n" +
 	"\x11SCOPE_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +

@@ -768,8 +768,11 @@ type OutputSettings struct {
 	// Agents treat absence as true so older managers never opt them into
 	// sending unredacted process arguments.
 	RedactProcessArgs *bool `protobuf:"varint,4,opt,name=redact_process_args,json=redactProcessArgs,proto3,oneof" json:"redact_process_args,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Opt-in: unset unless the manager routes the job_start log type. Managers
+	// that predate the field never set it, so agents stay silent by default.
+	JobStart      *OutputSetting `protobuf:"bytes,5,opt,name=job_start,json=jobStart,proto3" json:"job_start,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OutputSettings) Reset() {
@@ -828,6 +831,13 @@ func (x *OutputSettings) GetRedactProcessArgs() bool {
 		return *x.RedactProcessArgs
 	}
 	return false
+}
+
+func (x *OutputSettings) GetJobStart() *OutputSetting {
+	if x != nil {
+		return x.JobStart
+	}
+	return nil
 }
 
 var File_cicd_sensor_manager_v1beta1_types_proto protoreflect.FileDescriptor
@@ -913,12 +923,13 @@ const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\rOutputSetting\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
 	"\x15flush_threshold_bytes\x18\x02 \x01(\rR\x13flushThresholdBytes\x124\n" +
-	"\x16flush_interval_seconds\x18\x03 \x01(\rR\x14flushIntervalSeconds\"\xbe\x02\n" +
+	"\x16flush_interval_seconds\x18\x03 \x01(\rR\x14flushIntervalSeconds\"\x87\x03\n" +
 	"\x0eOutputSettings\x12H\n" +
 	"\tdetection\x18\x01 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\tdetection\x12O\n" +
 	"\rruntime_event\x18\x02 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\fruntimeEvent\x12D\n" +
 	"\asummary\x18\x03 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\asummary\x123\n" +
-	"\x13redact_process_args\x18\x04 \x01(\bH\x00R\x11redactProcessArgs\x88\x01\x01B\x16\n" +
+	"\x13redact_process_args\x18\x04 \x01(\bH\x00R\x11redactProcessArgs\x88\x01\x01\x12G\n" +
+	"\tjob_start\x18\x05 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\bjobStartB\x16\n" +
 	"\x14_redact_process_argsB\x95\x02\n" +
 	"\x1fcom.cicd_sensor.manager.v1beta1B\n" +
 	"TypesProtoP\x01Z\\github.com/cicd-sensor/cicd-sensor/internal/proto/cicd_sensor/manager/v1beta1;managerv1beta1\xa2\x02\x03CMX\xaa\x02\x1aCicdSensor.Manager.V1beta1\xca\x02\x1aCicdSensor\\Manager\\V1beta1\xe2\x02&CicdSensor\\Manager\\V1beta1\\GPBMetadata\xea\x02\x1cCicdSensor::Manager::V1beta1b\x06proto3"
@@ -965,12 +976,13 @@ var file_cicd_sensor_manager_v1beta1_types_proto_depIdxs = []int32{
 	9,  // 10: cicd_sensor.manager.v1beta1.OutputSettings.detection:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
 	9,  // 11: cicd_sensor.manager.v1beta1.OutputSettings.runtime_event:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
 	9,  // 12: cicd_sensor.manager.v1beta1.OutputSettings.summary:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
-	1,  // 13: cicd_sensor.manager.v1beta1.RuleSet.ListsEntry.value:type_name -> cicd_sensor.manager.v1beta1.StringList
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	9,  // 13: cicd_sensor.manager.v1beta1.OutputSettings.job_start:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
+	1,  // 14: cicd_sensor.manager.v1beta1.RuleSet.ListsEntry.value:type_name -> cicd_sensor.manager.v1beta1.StringList
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_cicd_sensor_manager_v1beta1_types_proto_init() }

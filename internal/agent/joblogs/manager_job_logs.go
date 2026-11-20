@@ -23,6 +23,7 @@ type ManagerJobLogs struct {
 	detection    *managerOutput
 	runtimeEvent *managerOutput
 	summaryLog   *managerOutput
+	jobStart     *managerOutput
 }
 
 // ManagerJobLogsConfig carries the inputs needed to start manager job logs.
@@ -57,7 +58,7 @@ func NewForTesting(logger *slog.Logger, sendBatch func(context.Context, managerc
 
 // HasWorkersForTesting reports whether any manager log worker is active.
 func (o *ManagerJobLogs) HasWorkersForTesting() bool {
-	return o != nil && (o.detection != nil || o.runtimeEvent != nil || o.summaryLog != nil)
+	return o != nil && (o.detection != nil || o.runtimeEvent != nil || o.summaryLog != nil || o.jobStart != nil)
 }
 
 func newManagerJobLogsWithSender(logger *slog.Logger, sendBatch func(context.Context, managerclient.LogBatch) error, identity jobcontext.JobIdentity, scopeType jobcontext.ScopeType, settings *managerv1beta1.OutputSettings) ManagerJobLogs {
@@ -76,9 +77,11 @@ func (o *ManagerJobLogs) start(identity jobcontext.JobIdentity, scopeType jobcon
 	detection := settings.GetDetection()
 	runtimeEvent := settings.GetRuntimeEvent()
 	summary := settings.GetSummary()
+	jobStart := settings.GetJobStart()
 	if !detection.GetEnabled() &&
 		!runtimeEvent.GetEnabled() &&
-		!summary.GetEnabled() {
+		!summary.GetEnabled() &&
+		!jobStart.GetEnabled() {
 		return
 	}
 
@@ -127,6 +130,24 @@ func (o *ManagerJobLogs) start(identity jobcontext.JobIdentity, scopeType jobcon
 			managerOutputChannelCap,
 		)
 	}
+	if jobStart.GetEnabled() {
+		o.jobStart = newManagerOutput(
+			o.logger,
+			sendBatch,
+			identity,
+			scopeType,
+			managerv1beta1.LogType_LOG_TYPE_JOB_START,
+			immediateFlushSetting(),
+			jobStartManagerOutputChannelCap,
+		)
+	}
+}
+
+// immediateFlushSetting makes the worker send every record as it arrives.
+// The start record proves liveness only if it leaves the runner before the
+// job can kill the Agent, so a manager-served batching policy is ignored.
+func immediateFlushSetting() *managerv1beta1.OutputSetting {
+	return &managerv1beta1.OutputSetting{Enabled: true, FlushThresholdBytes: 1}
 }
 
 func (o *ManagerJobLogs) ensureManagerSender() func(context.Context, managerclient.LogBatch) error {
@@ -166,6 +187,17 @@ func (o *ManagerJobLogs) EmitAndCloseSummaryLog(ctx context.Context, payload []b
 	return o.summaryLog.EmitAndClose(ctx, payload)
 }
 
+// EmitJobStartLog enqueues the job start record and returns without waiting
+// for delivery, so a slow manager cannot delay job start.
+func (o *ManagerJobLogs) EmitJobStartLog(ctx context.Context, payload []byte) error {
+	if o == nil || o.jobStart == nil {
+		return nil
+	}
+	// The worker sends with the emit context; the start request that
+	// triggered this record is finished long before the send completes.
+	return o.jobStart.Emit(context.WithoutCancel(ctx), payload)
+}
+
 // ForceRefreshIDToken remints and seeds the OIDC reuse cache used by manager
 // log workers. No-op when the connection uses a static manager token.
 func (o *ManagerJobLogs) ForceRefreshIDToken(ctx context.Context) error {
@@ -189,6 +221,11 @@ func (o *ManagerJobLogs) HasSummaryLog() bool {
 	return o != nil && o.summaryLog != nil
 }
 
+// HasJobStartLog reports whether a job_start destination is configured.
+func (o *ManagerJobLogs) HasJobStartLog() bool {
+	return o != nil && o.jobStart != nil
+}
+
 // HasRuntimeEventLog reports whether a runtime_event destination is configured.
 func (o *ManagerJobLogs) HasRuntimeEventLog() bool {
 	return o != nil && o.runtimeEvent != nil
@@ -207,6 +244,8 @@ func (o *ManagerJobLogs) DroppedLogRecords(logType managerv1beta1.LogType) uint6
 		return o.runtimeEvent.droppedCount()
 	case managerv1beta1.LogType_LOG_TYPE_SUMMARY:
 		return o.summaryLog.droppedCount()
+	case managerv1beta1.LogType_LOG_TYPE_JOB_START:
+		return o.jobStart.droppedCount()
 	default:
 		return 0
 	}
@@ -229,12 +268,16 @@ func (o *ManagerJobLogs) FlushStreamingLogs(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// FinalizeStreamingLogs closes detection and runtime event logs in
-// parallel so one slow drain cannot serialize in front of the other during
-// a deadline-bounded shutdown (#143).
+// FinalizeStreamingLogs closes detection, runtime event, and job start logs
+// in parallel so one slow drain cannot serialize in front of the others
+// during a deadline-bounded shutdown (#143). Closing the job start worker
+// also retries a start record whose first send failed.
 func (o *ManagerJobLogs) FinalizeStreamingLogs(ctx context.Context) error {
 	var wg sync.WaitGroup
-	var detectionErr, runtimeEventErr error
+	var detectionErr, runtimeEventErr, jobStartErr error
+	if o.jobStart != nil {
+		wg.Go(func() { jobStartErr = o.jobStart.Close(ctx) })
+	}
 	if o.detection != nil {
 		wg.Go(func() { detectionErr = o.detection.Close(ctx) })
 	}
@@ -242,5 +285,5 @@ func (o *ManagerJobLogs) FinalizeStreamingLogs(ctx context.Context) error {
 		wg.Go(func() { runtimeEventErr = o.runtimeEvent.Close(ctx) })
 	}
 	wg.Wait()
-	return errors.Join(detectionErr, runtimeEventErr)
+	return errors.Join(detectionErr, runtimeEventErr, jobStartErr)
 }

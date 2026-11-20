@@ -108,11 +108,16 @@ func (r *OutputRouter) OutputSettings() *managerv1beta1.OutputSettings {
 	if r == nil || len(r.perKind) == 0 {
 		return nil
 	}
-	return &managerv1beta1.OutputSettings{
+	settings := &managerv1beta1.OutputSettings{
 		Detection:    r.outputSetting(logtype.Detection),
 		RuntimeEvent: r.outputSetting(logtype.RuntimeEvent),
 		Summary:      r.outputSetting(logtype.Summary),
 	}
+	// job_start is opt-in: the field stays absent on the wire unless routed.
+	if r.perKind[logtype.JobStart] != nil {
+		settings.JobStart = r.outputSetting(logtype.JobStart)
+	}
+	return settings
 }
 
 func (r *OutputRouter) outputSetting(logKind logtype.LogType) *managerv1beta1.OutputSetting {

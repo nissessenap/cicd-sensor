@@ -71,6 +71,7 @@ func (jr *JobRegistry) attachGitHubProjectScopeToExistingJob(
 	if err := existing.SetProjectScope(ctx, projectScope); err != nil {
 		return nil, err
 	}
+	jr.emitJobStartLog(ctx, existing, projectScope)
 	return existing, nil
 }
 
@@ -106,6 +107,7 @@ func (jr *JobRegistry) startGitHubProjectOnlyJob(
 			return nil, err
 		}
 	}
+	jr.emitJobStartLog(ctx, job, projectScope)
 	return job, nil
 }
 

@@ -31,6 +31,7 @@ type RequestedOutputs struct {
 	Summary       bool                   `protobuf:"varint,1,opt,name=summary,proto3" json:"summary,omitempty"`
 	Detection     bool                   `protobuf:"varint,2,opt,name=detection,proto3" json:"detection,omitempty"`
 	RuntimeEvent  bool                   `protobuf:"varint,3,opt,name=runtime_event,json=runtimeEvent,proto3" json:"runtime_event,omitempty"`
+	JobStart      bool                   `protobuf:"varint,4,opt,name=job_start,json=jobStart,proto3" json:"job_start,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -82,6 +83,13 @@ func (x *RequestedOutputs) GetDetection() bool {
 func (x *RequestedOutputs) GetRuntimeEvent() bool {
 	if x != nil {
 		return x.RuntimeEvent
+	}
+	return false
+}
+
+func (x *RequestedOutputs) GetJobStart() bool {
+	if x != nil {
+		return x.JobStart
 	}
 	return false
 }
@@ -277,11 +285,12 @@ var File_cicd_sensor_manager_v1beta1_config_proto protoreflect.FileDescriptor
 
 const file_cicd_sensor_manager_v1beta1_config_proto_rawDesc = "" +
 	"\n" +
-	"(cicd_sensor/manager/v1beta1/config.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a'cicd_sensor/manager/v1beta1/types.proto\"o\n" +
+	"(cicd_sensor/manager/v1beta1/config.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a'cicd_sensor/manager/v1beta1/types.proto\"\x8c\x01\n" +
 	"\x10RequestedOutputs\x12\x18\n" +
 	"\asummary\x18\x01 \x01(\bR\asummary\x12\x1c\n" +
 	"\tdetection\x18\x02 \x01(\bR\tdetection\x12#\n" +
-	"\rruntime_event\x18\x03 \x01(\bR\fruntimeEvent\"\xde\x01\n" +
+	"\rruntime_event\x18\x03 \x01(\bR\fruntimeEvent\x12\x1b\n" +
+	"\tjob_start\x18\x04 \x01(\bR\bjobStart\"\xde\x01\n" +
 	"\x12FetchConfigRequest\x12\x1f\n" +
 	"\vrunner_type\x18\x01 \x01(\tR\n" +
 	"runnerType\x12K\n" +

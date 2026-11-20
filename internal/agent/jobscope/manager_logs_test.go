@@ -815,3 +815,17 @@ func TestJobScopeStateFlushManagerLogs_NoWorkersIsNoOp(t *testing.T) {
 		t.Fatalf("flush without workers: %v", err)
 	}
 }
+
+func TestJobScopeStateEmitJobStartLog_NilAndUnroutedScopesAreNoOps(t *testing.T) {
+	t.Parallel()
+
+	inputs := jobscope.JobStartLogInputs{Identity: testJobIdentity, Metadata: testJobMetadata, RunnerType: "machine"}
+	var nilScope *jobscope.JobScopeState
+	if err := nilScope.EmitJobStartLog(t.Context(), inputs); err != nil {
+		t.Fatalf("nil scope: %v", err)
+	}
+	// A scope without manager job logs (project-local config) has nowhere to send.
+	if err := jobscope.NewProject().EmitJobStartLog(t.Context(), inputs); err != nil {
+		t.Fatalf("scope without manager logs: %v", err)
+	}
+}

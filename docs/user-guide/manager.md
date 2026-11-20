@@ -224,6 +224,7 @@ Supported log types:
 | `summary` | Job summary generated at finalize time |
 | `detection` | Detection stream for rule hits |
 | `runtime_event` | Runtime events for incident response and forensics |
+| `job_start` | Optional. One small record per job when monitoring starts. Agents do not send it unless it is routed here |
 
 Each log type takes one `sink`.
 Use this mapping to choose patterns such as storing all logs in one GCS destination, streaming only Detection Logs to Pub/Sub, or retaining Runtime Event Logs in object storage.

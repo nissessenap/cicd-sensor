@@ -27,6 +27,7 @@ message RequestedOutputs {
   bool summary = 1;
   bool detection = 2;
   bool runtime_event = 3;
+  bool job_start = 4;
 }
 
 // FetchConfigRequest is the FetchConfig input. Auth is carried in headers,

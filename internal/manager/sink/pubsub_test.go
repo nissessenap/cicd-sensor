@@ -27,6 +27,11 @@ func TestPubSubFlushPolicy(t *testing.T) {
 			logKind: logtype.Summary,
 			want:    FlushPolicy{FlushThresholdBytes: 1, FlushIntervalSeconds: 1},
 		},
+		{
+			name:    "job start is immediate",
+			logKind: logtype.JobStart,
+			want:    FlushPolicy{FlushThresholdBytes: 1, FlushIntervalSeconds: 1},
+		},
 	}
 
 	for _, tt := range tests {

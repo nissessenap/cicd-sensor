@@ -54,6 +54,7 @@ func (jr *JobRegistry) ApplyGitHubHostStart(ctx context.Context, identity jobcon
 			return nil, err
 		}
 	}
+	jr.emitJobStartLog(ctx, job, hostScope)
 	return job, nil
 }
 
@@ -101,6 +102,7 @@ func (jr *JobRegistry) ApplyGitLabHostStart(ctx context.Context, identity jobcon
 	if err := job.SetHostScope(ctx, hostScope); err != nil {
 		return nil, err
 	}
+	jr.emitJobStartLog(ctx, job, hostScope)
 	return job, nil
 }
 

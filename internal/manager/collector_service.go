@@ -131,6 +131,8 @@ func outputLogType(logType managerv1beta1.LogType) (logtype.LogType, error) {
 		return logtype.RuntimeEvent, nil
 	case managerv1beta1.LogType_LOG_TYPE_SUMMARY:
 		return logtype.Summary, nil
+	case managerv1beta1.LogType_LOG_TYPE_JOB_START:
+		return logtype.JobStart, nil
 	default:
 		return "", fmt.Errorf("unsupported log_type: %s", logType.String())
 	}

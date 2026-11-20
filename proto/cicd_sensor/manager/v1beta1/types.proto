@@ -105,4 +105,7 @@ message OutputSettings {
   // Agents treat absence as true so older managers never opt them into
   // sending unredacted process arguments.
   optional bool redact_process_args = 4;
+  // Opt-in: unset unless the manager routes the job_start log type. Managers
+  // that predate the field never set it, so agents stay silent by default.
+  OutputSetting job_start = 5;
 }

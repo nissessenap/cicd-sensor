@@ -8,13 +8,14 @@ The manager delivers each batch to the configured sink.
 
 ## Log types
 
-Each log entry's `log_type` field uses the dotted form `cicd_sensor.<short>`. This is the routing key for downstream consumers. Manager-side configuration keys and sink object paths use the short form (`summary`, `detection`, `runtime_event`).
+Each log entry's `log_type` field uses the dotted form `cicd_sensor.<short>`. This is the routing key for downstream consumers. Manager-side configuration keys and sink object paths use the short form (`summary`, `detection`, `runtime_event`, `job_start`).
 
 | `log_type` value | Short name | Purpose | Timing |
 | --- | --- | --- | --- |
 | `cicd_sensor.summary` | `summary` | Final job summary. Entry point for reviewing runtime results per job. | Generated when the job finalizes. |
 | `cicd_sensor.detection` | `detection` | Per-rule-hit log for real-time detection and triage. Includes both `detect` and `collect` actions. | Streamed while the job is running. |
 | `cicd_sensor.runtime_event` | `runtime_event` | Detailed runtime events for incident response and forensics. | Streamed while the job is running. |
+| `cicd_sensor.job_start` | `job_start` | Proof that the sensor became active for a job. Opt-in: emitted only when the manager routes this log type. | Sent once, as soon as monitoring starts. |
 
 ## Common fields
 
@@ -60,6 +61,29 @@ Other fields add useful context for search, reports, and triage.
 | `gitlab_job_name` | GitLab CI job name |
 | `gitlab_config_ref_uri` | GitLab CI config provenance URI |
 
+## Job start
+
+The `job_start` log is off by default.
+Add `logs.job_start.sink` to `manager.yaml` to turn it on; see [Log routing](manager.md#log-routing).
+
+A `job_start` entry has the common fields, the `job` object, and `config_revision`.
+It carries no rules, counters, or observations.
+One entry is sent per `scope`, so a job monitored by both an installed runner and the GitHub Action produces two.
+
+Use it together with the `summary` log:
+
+| `job_start` | `summary` | Meaning |
+| --- | --- | --- |
+| present | present | The sensor ran for the whole job. |
+| present | absent | The sensor started and then stopped without finalizing: it was killed, the runner was lost, or the Summary could not be delivered. |
+| absent | absent | No telemetry. The sensor may never have run. Only the CI provider's job list can tell this apart from a job that does not exist. |
+
+Delivery is best effort and never delays or fails job start.
+If the first send fails, the Agent retries once when the job finalizes.
+
+`job_start` is a liveness signal, not a tamper-proof one.
+A process that takes over the job can still forge a Summary for its own job.
+
 ## Runtime event format
 
 Both the `detection` and `runtime_event` logs include an `event` object.
@@ -91,6 +115,7 @@ This means a rule can match full argv content even when the corresponding log en
 | --- | --- |
 | What happened across the job? | `summary` |
 | Which rules hit? | `detection` |
+| Did the sensor run for this job, and did it finish? | `job_start`, then `summary` |
 | Which process / network / file events happened around a detection? | `runtime_event` |
 | How do I follow a detection through the rest of the job? | Join the detection's `job` fields to `runtime_event` and read by `timestamp` to trace the job's full activity. |
 
