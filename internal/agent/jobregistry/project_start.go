@@ -3,6 +3,7 @@ package jobregistry
 import (
 	"context"
 
+	"github.com/cicd-sensor/cicd-sensor/internal/agent/evaluation"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/job"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/joblogs"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/jobscope"
@@ -66,14 +67,19 @@ func (jr *JobRegistry) attachGitHubProjectScopeToExistingJob(
 	if err != nil {
 		return nil, err
 	}
+	// Each scope's block rules fit a program on their own; reject the scope
+	// before attaching it when the Job's combined program would not.
+	if _, err := evaluation.NetBlockProgram(resolvedRulesOf(existing.HostScope()), &projectScope.ResolvedRules); err != nil {
+		return nil, err
+	}
 	jr.attachDebugOutput(ctx, projectScope, cfg.DebugEnabled)
 	// SetProjectScope swaps in the host+project evaluation bundle atomically.
 	if err := existing.SetProjectScope(ctx, projectScope); err != nil {
 		return nil, err
 	}
-	// The Job is already running, so a failure here cannot undo the attach:
-	// the start fails loudly, and the scope's block rules keep recording
-	// hits without being enforced.
+	// The Job is already running, so a kernel write failure cannot undo the
+	// attach: the start fails, and the scope's block rules record hits
+	// without being enforced.
 	if err := jr.installNetworkBlockProgram(ctx, existing); err != nil {
 		return nil, err
 	}

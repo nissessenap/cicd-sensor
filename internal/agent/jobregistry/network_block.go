@@ -8,6 +8,7 @@ import (
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/evaluation"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/job"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/jobscope"
+	"github.com/cicd-sensor/cicd-sensor/internal/agent/kerneltracker"
 	"github.com/cicd-sensor/cicd-sensor/internal/rule"
 )
 
@@ -24,9 +25,10 @@ func (jr *JobRegistry) SetNetworkBlockEnabled(enabled bool) {
 }
 
 // validateNetworkBlockRules rejects a scope whose block rules this agent
-// would not enforce, before the scope is attached to a Job. The check runs
-// on the authored rules, so monitor_mode does not hide a block rule from an
-// agent that has blocking disabled.
+// would not enforce, before the scope is attached to a Job. monitor_mode
+// resolves block to detect, so under it the authored rules are checked too:
+// a scope that passes in monitor_mode also passes once it is switched off,
+// except for the size of the combined program.
 func (jr *JobRegistry) validateNetworkBlockRules(scope *jobscope.JobScopeState) error {
 	jr.mu.Lock()
 	enabled := jr.networkBlockEnabled
@@ -42,6 +44,18 @@ func (jr *JobRegistry) validateNetworkBlockRules(scope *jobscope.JobScopeState) 
 		}
 		return nil
 	}
+	if scope.MonitorMode {
+		for _, set := range scope.RuleSets {
+			for _, r := range set.Rules {
+				if r.Action != rule.RuleActionBlock {
+					continue
+				}
+				if _, err := evaluation.LowerNetBlockRule(rule.ResolvedRule{Rule: r}); err != nil {
+					return fmt.Errorf("block rule %s/%s: %w", set.RulesetID, r.RuleID, err)
+				}
+			}
+		}
+	}
 	_, err := evaluation.NetBlockProgram(&scope.ResolvedRules, nil)
 	return err
 }
@@ -54,9 +68,6 @@ func (jr *JobRegistry) installNetworkBlockProgram(ctx context.Context, j *job.Jo
 	jr.mu.Lock()
 	kernelTracker := jr.kernelTracker
 	jr.mu.Unlock()
-	if kernelTracker == nil {
-		return nil
-	}
 
 	program, err := evaluation.NetBlockProgram(resolvedRulesOf(j.HostScope()), resolvedRulesOf(j.ProjectScope()))
 	if err != nil {
@@ -64,6 +75,9 @@ func (jr *JobRegistry) installNetworkBlockProgram(ctx context.Context, j *job.Jo
 	}
 	if len(program) == 0 {
 		return nil
+	}
+	if kernelTracker == nil {
+		return fmt.Errorf("install network block program: %w", kerneltracker.ErrNetBlockUnavailable)
 	}
 	if err := kernelTracker.SetJobNetBlockProgram(ctx, j.Identity(), program); err != nil {
 		return fmt.Errorf("install network block program: %w", err)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/jobscope"
+	"github.com/cicd-sensor/cicd-sensor/internal/agent/kerneltracker"
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/managerclient"
 	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/jobevent"
@@ -59,7 +60,8 @@ func TestValidateNetworkBlockRules(t *testing.T) {
 		{name: "enabled agent accepts a destination-only block rule", enabled: true, rules: []rule.Rule{detect, metadata}},
 		{name: "enabled agent accepts an empty scope", enabled: true},
 		{name: "enabled agent rejects a block rule it cannot lower", enabled: true, rules: []rule.Rule{usesProcess}, wantFieldName: "process.exec_path"},
-		{name: "monitor_mode downgrades the rule before lowering is required", enabled: true, monitorMode: true, rules: []rule.Rule{usesProcess}},
+		{name: "monitor_mode still rejects a block rule the agent could not lower", enabled: true, monitorMode: true, rules: []rule.Rule{usesProcess}, wantFieldName: "process.exec_path"},
+		{name: "monitor_mode accepts a destination-only block rule", enabled: true, monitorMode: true, rules: []rule.Rule{metadata}},
 		{name: "enabled agent rejects more block rules than one program holds", enabled: true, rules: tooMany, wantErr: netblock.ErrProgramTooLarge},
 	}
 	for _, tc := range tests {
@@ -87,7 +89,7 @@ func TestValidateNetworkBlockRules(t *testing.T) {
 	}
 }
 
-func TestStartRejectsBlockRulesWhenNetworkBlockDisabled(t *testing.T) {
+func TestStartRejectsBlockRulesItCannotEnforce(t *testing.T) {
 	t.Parallel()
 
 	blockSource := networkBlockRuleSource(networkBlockRule("metadata", `remote_ip == "169.254.169.254"`))
@@ -150,13 +152,14 @@ func TestStartRejectsBlockRulesWhenNetworkBlockDisabled(t *testing.T) {
 				t.Fatal("rejected start left a job registered")
 			}
 
-			enabled := newTestJobRegistry()
-			enabled.SetNetworkBlockEnabled(true)
-			if err := tc.start(enabled); err != nil {
-				t.Fatalf("start with blocking enabled: %v", err)
+			// Enabled, but no KernelTracker is bound to enforce the rule.
+			unenforced := newTestJobRegistry()
+			unenforced.SetNetworkBlockEnabled(true)
+			if err := tc.start(unenforced); !errors.Is(err, kerneltracker.ErrNetBlockUnavailable) {
+				t.Fatalf("start without a kernel tracker: error = %v, want %v", err, kerneltracker.ErrNetBlockUnavailable)
 			}
-			if enabled.get(tc.identity) == nil {
-				t.Fatal("accepted start did not register the job")
+			if unenforced.get(tc.identity) != nil {
+				t.Fatal("rejected start left a job registered")
 			}
 		})
 	}
