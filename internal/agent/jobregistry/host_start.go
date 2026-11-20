@@ -121,9 +121,11 @@ func (jr *JobRegistry) buildHostScopeFromManagerConfig(ctx context.Context, iden
 }
 
 func (jr *JobRegistry) fetchManagerConfig(ctx context.Context, identity jobcontext.JobIdentity, metadata jobcontext.JobMetadata, runnerType string, managerClient ManagerConfigFetcher, eventName string) (jobscope.ManagerConfig, error) {
+	wireIdentity := protoconv.ToProtoJobIdentity(identity)
+	wireIdentity.GithubCheckRunId = metadata.GitHubCheckRunID
 	result, err := managerClient.FetchConfig(ctx, &managerv1beta1.FetchConfigRequest{
 		RunnerType:  runnerType,
-		JobIdentity: protoconv.ToProtoJobIdentity(identity),
+		JobIdentity: wireIdentity,
 	})
 	if err != nil {
 		return jobscope.ManagerConfig{}, fmt.Errorf("manager config fetch: %w", err)

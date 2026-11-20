@@ -120,6 +120,23 @@ Network and minting:
 - Mint HTTP has a **10s** timeout and **does not follow redirects** (3xx fails the mint).
 - Concurrent RPCs share one in-flight mint. Each RPC wait follows its own context (`Canceled` / `DeadlineExceeded`); the mint itself has a separate bound and is canceled after the final Summary flush.
 
+Job identity binding:
+
+Every RPC from an OIDC principal must carry a `JobIdentity` that agrees with the token.
+A mismatch is rejected with `permission_denied` and logged as `manager_oidc_bind_rejected` with a `reason`.
+
+| `JobIdentity` field | Token claim | Rule |
+| --- | --- | --- |
+| `provider` | none | Must be `github` |
+| `project_path` | `repository` | Must match, case-insensitively |
+| `github_run_id` | `run_id` | Must match exactly |
+| `github_run_attempt` | `run_attempt` | Must match exactly |
+| `github_check_run_id` | `check_run_id` | Must match exactly when the request carries one. A token without the claim (GitHub Enterprise Server) cannot vouch for it, so such a request is rejected |
+
+This stops a job from fetching config or sending logs as another run, attempt, or job of the same repository.
+It does not stop a compromised job from sending false records about itself.
+Manager-token principals are not bound: a static token carries no job identity to bind to.
+
 Shutdown / lifetime:
 
 - On GitHub-hosted runners, a fresh mint during VM teardown after the job can return HTTP 400. `project result` **force-refreshes** while minting still works, then seeds `ReuseTokenSourceWithExpiry(..., 60s)` so later RPCs still honor JWT expiry.

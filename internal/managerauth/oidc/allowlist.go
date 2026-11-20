@@ -10,6 +10,12 @@ type Claims struct {
 	RepositoryOwnerID string
 	Ref               string
 	EventName         string
+	// Run identity claims. They do not take part in allowlist matching; the
+	// manager binds JobIdentity to them. CheckRunID is empty on tokens from
+	// GitHub Enterprise Server, which does not issue the claim.
+	RunID      string
+	RunAttempt string
+	CheckRunID string
 }
 
 // Match reports whether any allowlist entry exactly matches the claims.

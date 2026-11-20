@@ -17,6 +17,8 @@ type ManagerJobLogs struct {
 	logger     *slog.Logger
 	connection managerclient.Connection
 	sendBatch  func(context.Context, managerclient.LogBatch) error
+	// githubCheckRunID is set once at construction, before any worker starts.
+	githubCheckRunID string
 
 	detection    *managerOutput
 	runtimeEvent *managerOutput
@@ -25,18 +27,21 @@ type ManagerJobLogs struct {
 
 // ManagerJobLogsConfig carries the inputs needed to start manager job logs.
 type ManagerJobLogsConfig struct {
-	Logger         *slog.Logger
-	Connection     managerclient.Connection
-	Identity       jobcontext.JobIdentity
-	Type           jobcontext.ScopeType
-	OutputSettings *managerv1beta1.OutputSettings
+	Logger     *slog.Logger
+	Connection managerclient.Connection
+	Identity   jobcontext.JobIdentity
+	// GitHubCheckRunID is stamped on every batch this scope sends.
+	GitHubCheckRunID string
+	Type             jobcontext.ScopeType
+	OutputSettings   *managerv1beta1.OutputSettings
 }
 
 // NewManagerJobLogs starts workers for enabled manager job log settings.
 func NewManagerJobLogs(cfg ManagerJobLogsConfig) ManagerJobLogs {
 	logs := ManagerJobLogs{
-		logger:     cfg.Logger,
-		connection: cfg.Connection,
+		logger:           cfg.Logger,
+		connection:       cfg.Connection,
+		githubCheckRunID: cfg.GitHubCheckRunID,
 	}
 	logs.start(cfg.Identity, cfg.Type, cfg.OutputSettings)
 	return logs
@@ -80,6 +85,13 @@ func (o *ManagerJobLogs) start(identity jobcontext.JobIdentity, scopeType jobcon
 	sendBatch := o.ensureManagerSender()
 	if sendBatch == nil {
 		return
+	}
+	if checkRunID := o.githubCheckRunID; checkRunID != "" {
+		send := sendBatch
+		sendBatch = func(ctx context.Context, batch managerclient.LogBatch) error {
+			batch.GitHubCheckRunID = checkRunID
+			return send(ctx, batch)
+		}
 	}
 
 	if detection.GetEnabled() {

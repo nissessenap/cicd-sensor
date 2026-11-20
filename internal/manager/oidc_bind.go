@@ -47,8 +47,9 @@ func jobIdentityFromMessage(msg any) (identity *managerv1beta1.JobIdentity, expo
 	}
 }
 
-// oidcJobIdentityInterceptor binds OIDC principals to JobIdentity.provider +
-// project_path. Manager-token principals skip the check.
+// oidcJobIdentityInterceptor binds OIDC principals to JobIdentity: provider,
+// project_path, run ID, run attempt, and the check run ID when the request
+// carries one. Manager-token principals skip the check.
 type oidcJobIdentityInterceptor struct {
 	logger *slog.Logger
 }
@@ -121,8 +122,43 @@ func (i oidcJobIdentityInterceptor) check(ctx context.Context, msg any) error {
 		}
 		return connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
+	if reason := runIdentityMismatch(identity, principal); reason != "" {
+		if i.logger != nil {
+			i.logger.WarnContext(ctx, "manager_oidc_bind_rejected",
+				"reason", reason,
+				"auth_kind", principal.Kind,
+				"repository", principal.Repository,
+				"github_run_id", identity.GetGithubRunId(),
+				"github_run_attempt", identity.GetGithubRunAttempt(),
+				"github_check_run_id", identity.GetGithubCheckRunId(),
+				"claim_run_id", principal.RunID,
+				"claim_run_attempt", principal.RunAttempt,
+				"claim_check_run_id", principal.CheckRunID,
+			)
+		}
+		return connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+	}
 	applyVerifiedRepositoryIdentity(msg, principal.Repository)
 	return nil
+}
+
+// runIdentityMismatch returns the rejection reason when the request claims a
+// run the token was not issued for, or "" when the run identity is bound.
+// An empty claim never matches: a token that cannot vouch for a field must
+// not let the request assert it.
+func runIdentityMismatch(identity *managerv1beta1.JobIdentity, principal authPrincipal) string {
+	if principal.RunID == "" || identity.GetGithubRunId() != principal.RunID {
+		return "run_id_mismatch"
+	}
+	if principal.RunAttempt == "" || identity.GetGithubRunAttempt() != principal.RunAttempt {
+		return "run_attempt_mismatch"
+	}
+	// The check run ID is optional on the request (runner hooks and older
+	// actions cannot supply it), so only a present value is bound.
+	if id := identity.GetGithubCheckRunId(); id != "" && id != principal.CheckRunID {
+		return "check_run_id_mismatch"
+	}
+	return ""
 }
 
 func applyVerifiedRepositoryIdentity(msg any, repository string) {

@@ -123,6 +123,8 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 	oidcPrincipal := authPrincipal{
 		Kind:       oidcauth.AuthKindIDToken,
 		Repository: "acme-corp/api",
+		RunID:      "1",
+		RunAttempt: "1",
 	}
 	managerPrincipal := authPrincipal{Kind: oidcauth.AuthKindManagerToken}
 
@@ -130,8 +132,10 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 		ctx := authn.SetInfo(context.Background(), oidcPrincipal)
 		msg := &managerv1beta1.FetchConfigRequest{
 			JobIdentity: &managerv1beta1.JobIdentity{
-				Provider:    "github",
-				ProjectPath: "acme-corp/api",
+				Provider:         "github",
+				ProjectPath:      "acme-corp/api",
+				GithubRunId:      "1",
+				GithubRunAttempt: "1",
 			},
 		}
 		if err := interceptor.check(ctx, msg); err != nil {
@@ -143,8 +147,10 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 		ctx := authn.SetInfo(context.Background(), oidcPrincipal)
 		msg := &managerv1beta1.FetchConfigRequest{
 			JobIdentity: &managerv1beta1.JobIdentity{
-				Provider:    "github",
-				ProjectPath: "Acme-Corp/API",
+				Provider:         "github",
+				ProjectPath:      "Acme-Corp/API",
+				GithubRunId:      "1",
+				GithubRunAttempt: "1",
 			},
 		}
 		if err := interceptor.check(ctx, msg); err != nil {
@@ -159,8 +165,10 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 		ctx := authn.SetInfo(context.Background(), oidcPrincipal)
 		msg := &managerv1beta1.FetchConfigRequest{
 			JobIdentity: &managerv1beta1.JobIdentity{
-				Provider:    "github",
-				ProjectPath: "other/repo",
+				Provider:         "github",
+				ProjectPath:      "other/repo",
+				GithubRunId:      "1",
+				GithubRunAttempt: "1",
 			},
 		}
 		err := interceptor.check(ctx, msg)
@@ -172,8 +180,10 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 		msg := &managerv1beta1.IngestLogRequest{
 			Batch: &managerv1beta1.IngestLogBatch{
 				JobIdentity: &managerv1beta1.JobIdentity{
-					Provider:    "github",
-					ProjectPath: "acme-corp/api",
+					Provider:         "github",
+					ProjectPath:      "acme-corp/api",
+					GithubRunId:      "1",
+					GithubRunAttempt: "1",
 				},
 			},
 		}
@@ -192,14 +202,81 @@ func TestOIDCJobIdentityInterceptor(t *testing.T) {
 		ctx := authn.SetInfo(context.Background(), managerPrincipal)
 		msg := &managerv1beta1.FetchConfigRequest{
 			JobIdentity: &managerv1beta1.JobIdentity{
-				Provider:    "github",
-				ProjectPath: "other/repo",
+				Provider:         "github",
+				ProjectPath:      "other/repo",
+				GithubRunId:      "1",
+				GithubRunAttempt: "1",
 			},
 		}
 		if err := interceptor.check(ctx, msg); err != nil {
 			t.Fatalf("manager-token must skip bind: %v", err)
 		}
 	})
+}
+
+func TestOIDCJobIdentityInterceptor_RunBinding(t *testing.T) {
+	t.Parallel()
+
+	interceptor := oidcJobIdentityInterceptor{logger: slog.New(slog.NewJSONHandler(io.Discard, nil))}
+	tokenWithCheckRun := authPrincipal{
+		Kind:       oidcauth.AuthKindIDToken,
+		Repository: "acme-corp/api",
+		RunID:      "44798508261",
+		RunAttempt: "2",
+		CheckRunID: "88812345678",
+	}
+	tokenWithoutCheckRun := tokenWithCheckRun
+	tokenWithoutCheckRun.CheckRunID = ""
+	tokenWithoutRunClaims := authPrincipal{Kind: oidcauth.AuthKindIDToken, Repository: "acme-corp/api"}
+
+	identity := func(runID, attempt, checkRunID string) *managerv1beta1.JobIdentity {
+		return &managerv1beta1.JobIdentity{
+			Provider:         "github",
+			ProjectPath:      "acme-corp/api",
+			GithubRunId:      runID,
+			GithubRunAttempt: attempt,
+			GithubCheckRunId: checkRunID,
+		}
+	}
+
+	cases := []struct {
+		name      string
+		principal authPrincipal
+		identity  *managerv1beta1.JobIdentity
+		wantDeny  bool
+	}{
+		{name: "own run and own check run are accepted", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "88812345678")},
+		{name: "hook-started job without check run id is still accepted", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "")},
+		{name: "another run of the same repository is rejected", principal: tokenWithCheckRun, identity: identity("44798508262", "2", "88812345678"), wantDeny: true},
+		{name: "another attempt of the same run is rejected", principal: tokenWithCheckRun, identity: identity("44798508261", "1", "88812345678"), wantDeny: true},
+		{name: "another job of the same run is rejected", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "88812345679"), wantDeny: true},
+		{name: "request without run id cannot ride on a valid token", principal: tokenWithCheckRun, identity: identity("", "2", ""), wantDeny: true},
+		{name: "request without run attempt cannot ride on a valid token", principal: tokenWithCheckRun, identity: identity("44798508261", "", ""), wantDeny: true},
+		{name: "token without check_run_id claim cannot vouch for one", principal: tokenWithoutCheckRun, identity: identity("44798508261", "2", "88812345678"), wantDeny: true},
+		{name: "token without check_run_id claim still binds the run", principal: tokenWithoutCheckRun, identity: identity("44798508261", "2", "")},
+		{name: "token without run claims binds nothing and is rejected", principal: tokenWithoutRunClaims, identity: identity("", "", ""), wantDeny: true},
+		{name: "ids are compared exactly, not numerically", principal: tokenWithCheckRun, identity: identity("044798508261", "2", ""), wantDeny: true},
+		{name: "manager-token principals stay unbound", principal: authPrincipal{Kind: oidcauth.AuthKindManagerToken}, identity: identity("1", "1", "1")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := authn.SetInfo(t.Context(), tc.principal)
+			for _, msg := range []any{
+				&managerv1beta1.FetchConfigRequest{JobIdentity: tc.identity},
+				&managerv1beta1.IngestLogRequest{Batch: &managerv1beta1.IngestLogBatch{JobIdentity: tc.identity}},
+			} {
+				err := interceptor.check(ctx, msg)
+				if tc.wantDeny {
+					assertPermissionDenied(t, err)
+					continue
+				}
+				if err != nil {
+					t.Fatalf("check(%T): %v", msg, err)
+				}
+			}
+		})
+	}
 }
 
 func TestOIDCFakeIssuer_FetchConfigEndToEnd(t *testing.T) {
@@ -275,6 +352,34 @@ auth:
 		req.Header().Set(oidcauth.TokenTypeHeader, oidcauth.TokenTypeIDToken)
 		_, err := client.FetchConfig(context.Background(), req)
 		assertPermissionDenied(t, err)
+	})
+
+	t.Run("run claims decoded from the token are bound", func(t *testing.T) {
+		for name, mutate := range map[string]func(*managerv1beta1.JobIdentity){
+			"other run":       func(id *managerv1beta1.JobIdentity) { id.GithubRunId = "2" },
+			"other attempt":   func(id *managerv1beta1.JobIdentity) { id.GithubRunAttempt = "2" },
+			"other check run": func(id *managerv1beta1.JobIdentity) { id.GithubCheckRunId = "78" },
+		} {
+			identity := &managerv1beta1.JobIdentity{
+				Provider:               "github",
+				ProviderHost:           "github.com",
+				ProjectPath:            "acme-corp/api",
+				GithubRunId:            "1",
+				GithubJob:              "build",
+				GithubRunAttempt:       "1",
+				GithubRunnerTrackingId: "runner-1",
+				GithubCheckRunId:       "77",
+			}
+			mutate(identity)
+			req := connect.NewRequest(&managerv1beta1.FetchConfigRequest{JobIdentity: identity})
+			req.Header().Set("Authorization", "Bearer "+raw)
+			req.Header().Set(oidcauth.TokenTypeHeader, oidcauth.TokenTypeIDToken)
+			_, err := client.FetchConfig(t.Context(), req)
+			if err == nil {
+				t.Fatalf("%s: expected permission denied", name)
+			}
+			assertPermissionDenied(t, err)
+		}
 	})
 }
 
@@ -541,6 +646,9 @@ func mustTestSignJWT(t *testing.T, key *rsa.PrivateKey, repository, owner string
 		"nbf":              now.Add(-time.Minute).Unix(),
 		"repository":       repository,
 		"repository_owner": owner,
+		"run_id":           "1",
+		"run_attempt":      "1",
+		"check_run_id":     "77",
 	})
 	token.Header["kid"] = "test-key"
 	raw, err := token.SignedString(key)

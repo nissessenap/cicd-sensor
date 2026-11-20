@@ -20,6 +20,10 @@ message JobIdentity {
   string github_job = 11;
   string github_run_attempt = 12;
   string github_runner_tracking_id = 13;
+  // Check run ID of the job (`job.check_run_id`). Optional and not part of
+  // the job key: runner hooks cannot supply it. Carried here so the manager
+  // can bind it to the `check_run_id` OIDC claim.
+  string github_check_run_id = 14;
 
   // GitLab-specific fields. Required when provider = "gitlab".
   string gitlab_job_id = 20;

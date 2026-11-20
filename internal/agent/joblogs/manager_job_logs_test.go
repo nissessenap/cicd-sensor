@@ -35,6 +35,52 @@ func TestStartJobLogsAddsManagerDestination(t *testing.T) {
 	}
 }
 
+func TestStartJobLogsStampsCheckRunIDOnEveryBatch(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		checkRunID string
+	}{
+		{name: "scope started by the action", checkRunID: "88812345678"},
+		{name: "scope started by a runner hook", checkRunID: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			poster := &recordingLogBatchSender{}
+			logs := ManagerJobLogs{logger: testLogger, sendBatch: poster.sendBatch, githubCheckRunID: tc.checkRunID}
+			logs.start(
+				jobcontext.GitHubJobIdentity("github.com", "acme/example", "123", "build", "1", "runner-1"),
+				jobcontext.ScopeTypeProject,
+				&managerv1beta1.OutputSettings{
+					Detection: &managerv1beta1.OutputSetting{Enabled: true},
+					Summary:   &managerv1beta1.OutputSetting{Enabled: true},
+				},
+			)
+			if err := logs.WriteDetectionPayload(t.Context(), []byte(`{"rule_id":"a"}`)); err != nil {
+				t.Fatalf("emit detection: %v", err)
+			}
+			if err := logs.FinalizeStreamingLogs(t.Context()); err != nil {
+				t.Fatalf("finalize streaming: %v", err)
+			}
+			if err := logs.EmitAndCloseSummaryLog(t.Context(), []byte(`{"result":"passed"}`)); err != nil {
+				t.Fatalf("emit summary: %v", err)
+			}
+			poster.mu.Lock()
+			defer poster.mu.Unlock()
+			if len(poster.batches) != 2 {
+				t.Fatalf("sent batches: got %d, want 2", len(poster.batches))
+			}
+			for _, batch := range poster.batches {
+				if batch.GitHubCheckRunID != tc.checkRunID {
+					t.Fatalf("%s batch check run id: got %q, want %q", batch.Type, batch.GitHubCheckRunID, tc.checkRunID)
+				}
+			}
+		})
+	}
+}
+
 func TestStartJobLogsIgnoresDisabledType(t *testing.T) {
 	poster := &recordingLogBatchSender{}
 	identity := jobcontext.GitLabJobIdentity("gitlab.com", "group/project", "123")

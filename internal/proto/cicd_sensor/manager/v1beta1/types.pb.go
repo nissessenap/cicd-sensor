@@ -39,6 +39,10 @@ type JobIdentity struct {
 	GithubJob              string `protobuf:"bytes,11,opt,name=github_job,json=githubJob,proto3" json:"github_job,omitempty"`
 	GithubRunAttempt       string `protobuf:"bytes,12,opt,name=github_run_attempt,json=githubRunAttempt,proto3" json:"github_run_attempt,omitempty"`
 	GithubRunnerTrackingId string `protobuf:"bytes,13,opt,name=github_runner_tracking_id,json=githubRunnerTrackingId,proto3" json:"github_runner_tracking_id,omitempty"`
+	// Check run ID of the job (`job.check_run_id`). Optional and not part of
+	// the job key: runner hooks cannot supply it. Carried here so the manager
+	// can bind it to the `check_run_id` OIDC claim.
+	GithubCheckRunId string `protobuf:"bytes,14,opt,name=github_check_run_id,json=githubCheckRunId,proto3" json:"github_check_run_id,omitempty"`
 	// GitLab-specific fields. Required when provider = "gitlab".
 	GitlabJobId   string `protobuf:"bytes,20,opt,name=gitlab_job_id,json=gitlabJobId,proto3" json:"gitlab_job_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -120,6 +124,13 @@ func (x *JobIdentity) GetGithubRunAttempt() string {
 func (x *JobIdentity) GetGithubRunnerTrackingId() string {
 	if x != nil {
 		return x.GithubRunnerTrackingId
+	}
+	return ""
+}
+
+func (x *JobIdentity) GetGithubCheckRunId() string {
+	if x != nil {
+		return x.GithubCheckRunId
 	}
 	return ""
 }
@@ -823,7 +834,7 @@ var File_cicd_sensor_manager_v1beta1_types_proto protoreflect.FileDescriptor
 
 const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\n" +
-	"'cicd_sensor/manager/v1beta1/types.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a\x1bbuf/validate/validate.proto\"\xd8\x02\n" +
+	"'cicd_sensor/manager/v1beta1/types.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a\x1bbuf/validate/validate.proto\"\x87\x03\n" +
 	"\vJobIdentity\x121\n" +
 	"\bprovider\x18\x01 \x01(\tB\x15\xbaH\x12r\x10R\x06githubR\x06gitlabR\bprovider\x12#\n" +
 	"\rprovider_host\x18\x02 \x01(\tR\fproviderHost\x12!\n" +
@@ -833,7 +844,8 @@ const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\n" +
 	"github_job\x18\v \x01(\tR\tgithubJob\x12,\n" +
 	"\x12github_run_attempt\x18\f \x01(\tR\x10githubRunAttempt\x129\n" +
-	"\x19github_runner_tracking_id\x18\r \x01(\tR\x16githubRunnerTrackingId\x12\"\n" +
+	"\x19github_runner_tracking_id\x18\r \x01(\tR\x16githubRunnerTrackingId\x12-\n" +
+	"\x13github_check_run_id\x18\x0e \x01(\tR\x10githubCheckRunId\x12\"\n" +
 	"\rgitlab_job_id\x18\x14 \x01(\tR\vgitlabJobId\"$\n" +
 	"\n" +
 	"StringList\x12\x16\n" +

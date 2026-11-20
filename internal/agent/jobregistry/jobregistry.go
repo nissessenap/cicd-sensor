@@ -270,11 +270,12 @@ func (jr *JobRegistry) startManagerJobLogs(scope *jobscope.JobScopeState, identi
 		return
 	}
 	logs := joblogs.NewManagerJobLogs(joblogs.ManagerJobLogsConfig{
-		Logger:         jr.logger,
-		Connection:     conn,
-		Identity:       identity,
-		Type:           scope.Type,
-		OutputSettings: scope.OutputSettings,
+		Logger:           jr.logger,
+		Connection:       conn,
+		Identity:         identity,
+		GitHubCheckRunID: scope.GitHubCheckRunID,
+		Type:             scope.Type,
+		OutputSettings:   scope.OutputSettings,
 	})
 	scope.SetManagerJobLogs(logs)
 }
