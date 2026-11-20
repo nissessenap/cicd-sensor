@@ -3,6 +3,7 @@ package jobregistry_test
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/cicd-sensor/cicd-sensor/internal/agent/job"
@@ -63,6 +64,31 @@ func (f *slowFetcher) FetchConfig(ctx context.Context, _ *managerv1beta1.FetchCo
 		return nil, ctx.Err()
 	}
 	return &managerclient.FetchResult{}, nil
+}
+
+// recordingFetcher returns result and keeps every request for assertions.
+type recordingFetcher struct {
+	mu       sync.Mutex
+	requests []*managerv1beta1.FetchConfigRequest
+	result   managerclient.FetchResult
+}
+
+func (f *recordingFetcher) FetchConfig(_ context.Context, req *managerv1beta1.FetchConfigRequest) (*managerclient.FetchResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requests = append(f.requests, req)
+	result := f.result
+	return &result, nil
+}
+
+func (f *recordingFetcher) lastRequest(t *testing.T) *managerv1beta1.FetchConfigRequest {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.requests) == 0 {
+		t.Fatal("manager config was not fetched")
+	}
+	return f.requests[len(f.requests)-1]
 }
 
 type staticManagerFetcher struct{}

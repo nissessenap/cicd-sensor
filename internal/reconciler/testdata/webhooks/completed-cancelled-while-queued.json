@@ -1,0 +1,46 @@
+{
+  "action": "completed",
+  "workflow_job": {
+    "id": 136525463480,
+    "run_id": 44798508258,
+    "workflow_name": "verify-check-run-id-queued",
+    "head_branch": "verify-check-run-id",
+    "run_url": "https://api.github.com/repos/acme/example/actions/runs/44798508258",
+    "run_attempt": 2,
+    "node_id": "CR_redacted",
+    "head_sha": "0000000000000000000000000000000000000000",
+    "url": "https://api.github.com/repos/acme/example/actions/jobs/136525463480",
+    "html_url": "https://github.com/acme/example/actions/runs/44798508258/job/136525463480",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "created_at": "2026-11-20T19:42:47Z",
+    "started_at": "2026-11-20T19:42:47Z",
+    "completed_at": "2026-11-20T19:43:10Z",
+    "name": "never-picked-up",
+    "steps": [],
+    "check_run_url": "https://api.github.com/repos/acme/example/check-runs/136525463480",
+    "labels": [
+      "self-hosted",
+      "cicd-sensor-verify-no-such-runner"
+    ],
+    "runner_id": 0,
+    "runner_name": "",
+    "runner_group_id": 0,
+    "runner_group_name": ""
+  },
+  "repository": {
+    "name": "example",
+    "full_name": "acme/example",
+    "private": true,
+    "html_url": "https://github.com/acme/example",
+    "owner": {
+      "login": "acme"
+    }
+  },
+  "organization": {
+    "login": "acme"
+  },
+  "sender": {
+    "login": "octocat"
+  }
+}

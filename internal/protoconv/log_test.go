@@ -20,6 +20,7 @@ func TestToLogContext_GitHub(t *testing.T) {
 		GitHubWorkflowRef: "acme/example/.github/workflows/ci.yml@refs/heads/main",
 		GitHubWorkflowSHA: "def456",
 		GitHubWorkflow:    "CI",
+		GitHubCheckRunID:  "88812345678",
 	}
 
 	got := ToLogContext(identity, metadata)
@@ -38,7 +39,8 @@ func TestToLogContext_GitHub(t *testing.T) {
 		got.ActorName != "octocat" ||
 		got.GithubWorkflowRef != metadata.GitHubWorkflowRef ||
 		got.GithubWorkflowSha != "def456" ||
-		got.GithubWorkflow != "CI" {
+		got.GithubWorkflow != "CI" ||
+		got.GithubCheckRunId != "88812345678" {
 		t.Fatalf("github log job context mismatch: %+v", got)
 	}
 }
@@ -87,7 +89,7 @@ func TestToLogContext_GitLab(t *testing.T) {
 // JSON marshal output must not leak github_* keys into a GitLab job log.
 func TestToLogContext_GitLabJSONOmitsGitHubFields(t *testing.T) {
 	identity := jobcontext.GitLabJobIdentity("gitlab.com", "group/project", "14274377073")
-	ctx := ToLogContext(identity, jobcontext.JobMetadata{CommitSHA: "abc"})
+	ctx := ToLogContext(identity, jobcontext.JobMetadata{CommitSHA: "abc", GitHubCheckRunID: "88812345678"})
 	data, err := (protojson.MarshalOptions{EmitDefaultValues: false}).Marshal(ctx)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -96,7 +98,7 @@ func TestToLogContext_GitLabJSONOmitsGitHubFields(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"github_run_id", "github_job", "github_run_attempt", "github_runner_tracking_id", "github_workflow_ref", "github_workflow_sha", "github_workflow"} {
+	for _, key := range []string{"github_run_id", "github_job", "github_run_attempt", "github_runner_tracking_id", "github_workflow_ref", "github_workflow_sha", "github_workflow", "github_check_run_id"} {
 		if _, present := raw[key]; present {
 			t.Errorf("gitlab job log should omit %q, but it was present: %s", key, data)
 		}

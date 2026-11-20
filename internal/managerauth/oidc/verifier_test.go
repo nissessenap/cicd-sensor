@@ -217,6 +217,72 @@ func TestVerifier_FakeIssuerIntegration(t *testing.T) {
 	}
 }
 
+func TestVerifier_RunClaims(t *testing.T) {
+	t.Parallel()
+
+	key := mustRSAKey(t)
+	verifier := oidcauth.NewVerifierWithKeySet(oidcauth.Config{
+		Enabled:  true,
+		Issuer:   testIssuer,
+		Audience: testAudience,
+		JWKSURL:  "unused",
+		Allow:    []oidcauth.AllowEntry{{Repository: "acme-corp/api"}},
+	}, &gooidc.StaticKeySet{PublicKeys: []crypto.PublicKey{&key.PublicKey}})
+
+	cases := []struct {
+		name                          string
+		runID, runAttempt, checkRunID any
+		want                          oidcauth.Claims
+		wantErr                       bool
+	}{
+		{
+			name:  "github.com tokens carry all three as strings",
+			runID: "44798508261", runAttempt: "2", checkRunID: "88812345678",
+			want: oidcauth.Claims{RunID: "44798508261", RunAttempt: "2", CheckRunID: "88812345678"},
+		},
+		{
+			name:  "GHES tokens have no check_run_id claim",
+			runID: "44798508261", runAttempt: "1",
+			want: oidcauth.Claims{RunID: "44798508261", RunAttempt: "1"},
+		},
+		{
+			name: "non-Actions tokens leave run claims empty for the binder to reject",
+			want: oidcauth.Claims{},
+		},
+		{
+			name:  "a numeric run claim fails closed instead of being coerced",
+			runID: 44798508261, runAttempt: "1",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+			raw := mustSignJWT(t, key, jwtClaims{
+				Issuer: testIssuer, Audience: []string{testAudience},
+				Expiry: now.Add(time.Minute), IssuedAt: now, NotBefore: now.Add(-time.Minute),
+				Repository: "acme-corp/api", RepositoryOwner: "acme-corp",
+				RunID: tc.runID, RunAttempt: tc.runAttempt, CheckRunID: tc.checkRunID,
+			})
+			principal, err := verifier.Verify(t.Context(), raw)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("Verify: expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Verify: %v", err)
+			}
+			got := principal.Claims
+			if got.RunID != tc.want.RunID || got.RunAttempt != tc.want.RunAttempt || got.CheckRunID != tc.want.CheckRunID {
+				t.Fatalf("run claims: got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 type jwtClaims struct {
 	Issuer            string
 	Subject           string
@@ -228,6 +294,10 @@ type jwtClaims struct {
 	RepositoryOwner   string
 	RepositoryID      string
 	RepositoryOwnerID string
+	// Run claims are `any` so a test can sign the non-string shape.
+	RunID      any
+	RunAttempt any
+	CheckRunID any
 }
 
 func mustRSAKey(t *testing.T) *rsa.PrivateKey {
@@ -241,7 +311,7 @@ func mustRSAKey(t *testing.T) *rsa.PrivateKey {
 
 func mustSignJWT(t *testing.T, key *rsa.PrivateKey, claims jwtClaims) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	mapClaims := jwt.MapClaims{
 		"iss":                 claims.Issuer,
 		"sub":                 claims.Subject,
 		"aud":                 claims.Audience,
@@ -252,7 +322,17 @@ func mustSignJWT(t *testing.T, key *rsa.PrivateKey, claims jwtClaims) string {
 		"repository_owner":    claims.RepositoryOwner,
 		"repository_id":       claims.RepositoryID,
 		"repository_owner_id": claims.RepositoryOwnerID,
-	})
+	}
+	for name, value := range map[string]any{
+		"run_id":       claims.RunID,
+		"run_attempt":  claims.RunAttempt,
+		"check_run_id": claims.CheckRunID,
+	} {
+		if value != nil {
+			mapClaims[name] = value
+		}
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, mapClaims)
 	token.Header["kid"] = "test-key"
 	raw, err := token.SignedString(key)
 	if err != nil {

@@ -1,0 +1,16 @@
+# Reconciler config for the e2e stack. The grace period is seconds, not
+# minutes, so the test does not wait.
+pubsub:
+  project_id: e2e
+  subscription: reconciler
+
+findings:
+  pubsub_topic: findings
+
+grace_period: 2s
+reconcile_interval: 1s
+
+expect:
+  repositories:
+    include: ["acme/*"]
+  exclude_runner_labels: [macos-latest, windows-latest]

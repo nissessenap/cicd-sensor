@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/logtype"
 	"github.com/cicd-sensor/cicd-sensor/internal/manager/sink"
 	managerv1beta1 "github.com/cicd-sensor/cicd-sensor/internal/proto/cicd_sensor/manager/v1beta1"
@@ -46,6 +47,10 @@ func (h *collectorServiceHandler) IngestLog(ctx context.Context, req *connect.Re
 	if err := identity.Validate(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid job identity: %w", err))
 	}
+	checkRunID := msg.GetJobIdentity().GetGithubCheckRunId()
+	if err := (jobcontext.JobMetadata{GitHubCheckRunID: checkRunID}).Validate(); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid job identity: %w", err))
+	}
 	if err := validateFlushAt(msg.FlushAt); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -59,12 +64,13 @@ func (h *collectorServiceHandler) IngestLog(ctx context.Context, req *connect.Re
 	}
 
 	batch := sink.IngestLogBatch{
-		LogType:    logType,
-		Identity:   identity,
-		Scope:      scope,
-		FlushAt:    msg.FlushAt.AsTime().UTC(),
-		ReceivedAt: h.server.now().UTC(),
-		Body:       msg.CompressedJsonl,
+		LogType:          logType,
+		Identity:         identity,
+		GitHubCheckRunID: checkRunID,
+		Scope:            scope,
+		FlushAt:          msg.FlushAt.AsTime().UTC(),
+		ReceivedAt:       h.server.now().UTC(),
+		Body:             msg.CompressedJsonl,
 	}
 
 	if h.server.logger != nil {
@@ -131,6 +137,8 @@ func outputLogType(logType managerv1beta1.LogType) (logtype.LogType, error) {
 		return logtype.RuntimeEvent, nil
 	case managerv1beta1.LogType_LOG_TYPE_SUMMARY:
 		return logtype.Summary, nil
+	case managerv1beta1.LogType_LOG_TYPE_JOB_START:
+		return logtype.JobStart, nil
 	default:
 		return "", fmt.Errorf("unsupported log_type: %s", logType.String())
 	}

@@ -1,8 +1,8 @@
-// Package logtype names the three job-log types shared between the agent
+// Package logtype names the four job-log types shared between the agent
 // (emitter) and the manager (router) so their routing keys cannot drift.
 //
 // Two forms exist:
-//   - Short ("summary", "detection", "runtime_event") — internal: routing
+//   - Short ("summary", "detection", "runtime_event", "job_start") — internal: routing
 //     keys, sink prefixes, manager.yaml. Use LogType.String().
 //   - Wire ("cicd_sensor.summary", ...) — JSON `log_type` only, the stable
 //     routing key. Use LogType.Wire().
@@ -14,6 +14,7 @@ const (
 	Detection    LogType = "detection"
 	RuntimeEvent LogType = "runtime_event"
 	Summary      LogType = "summary"
+	JobStart     LogType = "job_start"
 )
 
 // ServiceName is emitted in `service_name`. Kebab (human-readable component
@@ -33,12 +34,13 @@ const (
 	DetectionSchemaVersion    = "v1"
 	RuntimeEventSchemaVersion = "v1"
 	SummarySchemaVersion      = "v1"
+	JobStartSchemaVersion     = "v1"
 )
 
 // Parse accepts the short form (as used in manager.yaml keys).
 func Parse(value string) (LogType, bool) {
 	switch LogType(value) {
-	case Detection, RuntimeEvent, Summary:
+	case Detection, RuntimeEvent, Summary, JobStart:
 		return LogType(value), true
 	default:
 		return "", false

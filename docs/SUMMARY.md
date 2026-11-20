@@ -22,6 +22,7 @@
   - [Rule modifiers](user-guide/rule-modifiers.md)
   - [Rule development](user-guide/rule-development.md)
 - [Logging](user-guide/logging.md)
+  - [Missing telemetry](user-guide/missing-telemetry.md)
 - [Attestation predicate](user-guide/attestation-predicate.md)
 
 # Developer Guide

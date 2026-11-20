@@ -635,6 +635,63 @@ func TestListener_ProjectStart_GitHub(t *testing.T) {
 	}
 }
 
+func TestListener_GitHubStart_ValidatesCheckRunID(t *testing.T) {
+	cases := []struct {
+		name       string
+		path       string
+		checkRunID string
+		want       int
+	}{
+		{name: "action-supplied id reaches the project scope", path: "/v1/github/project/start", checkRunID: "88812345678", want: http.StatusOK},
+		{name: "unexpanded expression is rejected before a job is created", path: "/v1/github/project/start", checkRunID: "${{ job.check_run_id }}", want: http.StatusBadRequest},
+		{name: "host start applies the same check", path: "/v1/github/host/start", checkRunID: "not-a-number", want: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, registry, cleanup := setupListenerWithRegistry(t)
+			defer cleanup()
+
+			body := mustJSON(t, map[string]any{
+				"provider":                  "github",
+				"provider_host":             "github.com",
+				"project_path":              "acme/example",
+				"github_run_id":             "123",
+				"github_job":                "build",
+				"github_run_attempt":        "1",
+				"github_runner_tracking_id": "github_tracking_check_run",
+				"metadata":                  map[string]string{"github_check_run_id": tc.checkRunID},
+			})
+			resp, err := client.Post("http://cicd-sensor"+tc.path, "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				dump, _ := io.ReadAll(resp.Body)
+				t.Fatalf("status: got %d, want %d (body=%s)", resp.StatusCode, tc.want, dump)
+			}
+
+			id := jobcontext.GitHubJobIdentity("github.com", "acme/example", "123", "build", "1", "github_tracking_check_run")
+			job := listenerRegisteredJob(registry, id)
+			if tc.want != http.StatusOK {
+				if job != nil {
+					t.Fatal("rejected start must not register a job")
+				}
+				return
+			}
+			if job == nil || job.ProjectScope() == nil {
+				t.Fatal("expected project scope to be set")
+			}
+			if got := job.ProjectScope().GitHubCheckRunID; got != tc.checkRunID {
+				t.Fatalf("scope check run id: got %q, want %q", got, tc.checkRunID)
+			}
+			if got := job.Metadata().GitHubCheckRunID; got != tc.checkRunID {
+				t.Fatalf("job metadata check run id: got %q, want %q", got, tc.checkRunID)
+			}
+		})
+	}
+}
+
 func TestListener_ProjectStart_SeedsProjectDefaultMaxAlerts(t *testing.T) {
 	client, jobRegistry, cleanup := setupListenerWithRegistry(t)
 	defer cleanup()

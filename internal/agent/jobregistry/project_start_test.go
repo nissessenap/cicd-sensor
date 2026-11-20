@@ -298,3 +298,33 @@ func TestJobRegistry_ApplyGitHubProjectStart_PendingDuplicateReturnsError(t *tes
 		t.Fatalf("first ApplyGitHubProjectStart: %v", err)
 	}
 }
+
+func TestJobRegistry_ApplyGitHubProjectStart_FetchConfigCarriesCheckRunID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		checkRunID string
+	}{
+		{name: "action-supplied id is sent so the manager can bind it", checkRunID: "88812345678"},
+		{name: "older action without the input sends no id", checkRunID: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fetcher := &recordingFetcher{}
+			jr := newJobRegistry(t)
+			if _, err := jr.ApplyGitHubProjectStart(testCtx, jobregistry.GitHubProjectStartConfig{
+				Identity:      jobcontext.GitHubJobIdentity("github.com", "acme/example", "123", "build", "1", "runner-1"),
+				Metadata:      jobcontext.JobMetadata{GitHubCheckRunID: tc.checkRunID},
+				RunnerType:    "machine",
+				ManagerClient: fetcher,
+			}); err != nil {
+				t.Fatalf("ApplyGitHubProjectStart: %v", err)
+			}
+			if got := fetcher.lastRequest(t).GetJobIdentity().GetGithubCheckRunId(); got != tc.checkRunID {
+				t.Fatalf("FetchConfig job_identity.github_check_run_id: got %q, want %q", got, tc.checkRunID)
+			}
+		})
+	}
+}

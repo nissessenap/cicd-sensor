@@ -12,6 +12,7 @@ func TestParse(t *testing.T) {
 		{name: "detection", input: "detection", want: Detection, ok: true},
 		{name: "runtime event", input: "runtime_event", want: RuntimeEvent, ok: true},
 		{name: "summary", input: "summary", want: Summary, ok: true},
+		{name: "job start", input: "job_start", want: JobStart, ok: true},
 		{name: "unknown", input: "no_such_log", ok: false},
 		{name: "empty", input: "", ok: false},
 		{name: "wire form rejected", input: "cicd_sensor.summary", ok: false},

@@ -86,11 +86,20 @@ The Manager holds the rule bundle, but it does not evaluate runtime events.
 
 ## Log ingest and outputs
 
-Agents send Summary Logs, Detection Logs, and Runtime Event Logs to `CollectorService.IngestLog` as gzip-compressed JSONL batches.
+Agents send Summary Logs, Detection Logs, Runtime Event Logs, and Job Start Logs to `CollectorService.IngestLog` as gzip-compressed JSONL batches.
 The Manager delivers them to sinks such as S3, GCS, Azure Blob, or Pub/Sub according to the routing policy for each log type.
+
+An Agent sends a log type only when the Manager routes it: `FetchConfig` returns an enabled `OutputSetting` for each routed type.
+Job Start Logs use the same mechanism as their opt-in.
+`OutputSettings.job_start` stays unset unless `logs.job_start.sink` is configured, so existing deployments see no new record.
+The Agent sends the start record immediately and ignores any batching policy for it, because the record is only useful if it leaves the runner before the job can stop the Agent.
 
 The Manager treats the log batch as the delivery unit.
 It does not interpret runtime events or evaluate detections.
+
+The Pub/Sub sink copies the batch's `JobIdentity` into message attributes.
+Record bodies are never parsed by the Manager, so for OIDC principals these attributes are the only job identity that is bound to the token's claims.
+A consumer that needs a trustworthy job identity, such as `cicd-sensor-reconciler`, must read the attributes and treat the `job` object in the body as job-controlled.
 
 Cloud credentials are held only by the Manager process.
 Agents do not receive cloud credentials.
@@ -119,6 +128,23 @@ Network and minting:
 - Agent mints with **GET** to the runner `request_url`, after checking **https** and a startup host allowlist (default `*.actions.githubusercontent.com`).
 - Mint HTTP has a **10s** timeout and **does not follow redirects** (3xx fails the mint).
 - Concurrent RPCs share one in-flight mint. Each RPC wait follows its own context (`Canceled` / `DeadlineExceeded`); the mint itself has a separate bound and is canceled after the final Summary flush.
+
+Job identity binding:
+
+Every RPC from an OIDC principal must carry a `JobIdentity` that agrees with the token.
+A mismatch is rejected with `permission_denied` and logged as `manager_oidc_bind_rejected` with a `reason`.
+
+| `JobIdentity` field | Token claim | Rule |
+| --- | --- | --- |
+| `provider` | none | Must be `github` |
+| `project_path` | `repository` | Must match, case-insensitively |
+| `github_run_id` | `run_id` | Must match exactly |
+| `github_run_attempt` | `run_attempt` | Must match exactly |
+| `github_check_run_id` | `check_run_id` | Must match exactly when the request carries one. A token without the claim (GitHub Enterprise Server) cannot vouch for it, so the Manager removes the ID from the request and accepts it; the logs are delivered without `github_check_run_id` |
+
+This stops a job from fetching config or sending logs as another run, attempt, or job of the same repository.
+It does not stop a compromised job from sending false records about itself.
+Manager-token principals are not bound: a static token carries no job identity to bind to.
 
 Shutdown / lifetime:
 

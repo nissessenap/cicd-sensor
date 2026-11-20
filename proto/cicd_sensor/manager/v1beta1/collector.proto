@@ -21,6 +21,7 @@ enum LogType {
   LOG_TYPE_DETECTION = 1;
   LOG_TYPE_RUNTIME_EVENT = 2;
   LOG_TYPE_SUMMARY = 3;
+  LOG_TYPE_JOB_START = 4;
 }
 
 // Scope identifies which ownership scope produced an ingest batch.

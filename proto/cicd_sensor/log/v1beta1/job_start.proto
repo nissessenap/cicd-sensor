@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package cicd_sensor.log.v1beta1;
+
+import "buf/validate/validate.proto";
+import "cicd_sensor/log/v1beta1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// JobStartLogEntry records that the sensor became active for one scope of a
+// job. It carries no rules, counters, or observations; the Summary has those.
+// A job with a start record and no Summary lost its sensor mid-job.
+message JobStartLogEntry {
+  google.protobuf.Timestamp timestamp = 1 [json_name = "timestamp"];
+  optional string log_type = 2 [json_name = "log_type"];
+  optional string service_name = 3 [json_name = "service_name"];
+  optional string service_version = 4 [json_name = "service_version"];
+  optional string schema_version = 5 [json_name = "schema_version", (buf.validate.field).string.const = "v1"];
+  // UUIDv7 for this job start log row.
+  optional string log_id = 6 [json_name = "log_id"];
+  LogContext job = 7 [json_name = "job"];
+  optional string scope = 8 [json_name = "scope"];
+  optional string runner_type = 9 [json_name = "runner_type"];
+  optional string config_revision = 10 [json_name = "config_revision"];
+}

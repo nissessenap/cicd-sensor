@@ -54,6 +54,7 @@ func (jr *JobRegistry) ApplyGitHubHostStart(ctx context.Context, identity jobcon
 			return nil, err
 		}
 	}
+	jr.emitJobStartLog(ctx, job, hostScope)
 	return job, nil
 }
 
@@ -101,12 +102,14 @@ func (jr *JobRegistry) ApplyGitLabHostStart(ctx context.Context, identity jobcon
 	if err := job.SetHostScope(ctx, hostScope); err != nil {
 		return nil, err
 	}
+	jr.emitJobStartLog(ctx, job, hostScope)
 	return job, nil
 }
 
 // buildHostScopeFromManagerConfig builds a resolved host scope from manager config.
 func (jr *JobRegistry) buildHostScopeFromManagerConfig(ctx context.Context, identity jobcontext.JobIdentity, metadata jobcontext.JobMetadata, runnerType string, hostManagerConnection managerclient.Connection, hostManagerClient ManagerConfigFetcher) (*jobscope.JobScopeState, error) {
 	hostScope := jobscope.NewHost()
+	hostScope.GitHubCheckRunID = metadata.GitHubCheckRunID
 	managerConfig, err := jr.fetchManagerConfig(ctx, identity, metadata, runnerType, hostManagerClient, "manager_config_fetched")
 	if err != nil {
 		return nil, err
@@ -120,9 +123,11 @@ func (jr *JobRegistry) buildHostScopeFromManagerConfig(ctx context.Context, iden
 }
 
 func (jr *JobRegistry) fetchManagerConfig(ctx context.Context, identity jobcontext.JobIdentity, metadata jobcontext.JobMetadata, runnerType string, managerClient ManagerConfigFetcher, eventName string) (jobscope.ManagerConfig, error) {
+	wireIdentity := protoconv.ToProtoJobIdentity(identity)
+	wireIdentity.GithubCheckRunId = metadata.GitHubCheckRunID
 	result, err := managerClient.FetchConfig(ctx, &managerv1beta1.FetchConfigRequest{
 		RunnerType:  runnerType,
-		JobIdentity: protoconv.ToProtoJobIdentity(identity),
+		JobIdentity: wireIdentity,
 	})
 	if err != nil {
 		return jobscope.ManagerConfig{}, fmt.Errorf("manager config fetch: %w", err)

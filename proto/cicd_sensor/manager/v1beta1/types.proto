@@ -20,6 +20,10 @@ message JobIdentity {
   string github_job = 11;
   string github_run_attempt = 12;
   string github_runner_tracking_id = 13;
+  // Check run ID of the job (`job.check_run_id`). Optional and not part of
+  // the job key: runner hooks cannot supply it. Carried here so the manager
+  // can bind it to the `check_run_id` OIDC claim.
+  string github_check_run_id = 14;
 
   // GitLab-specific fields. Required when provider = "gitlab".
   string gitlab_job_id = 20;
@@ -101,4 +105,7 @@ message OutputSettings {
   // Agents treat absence as true so older managers never opt them into
   // sending unredacted process arguments.
   optional bool redact_process_args = 4;
+  // Opt-in: unset unless the manager routes the job_start log type. Managers
+  // that predate the field never set it, so agents stay silent by default.
+  OutputSetting job_start = 5;
 }

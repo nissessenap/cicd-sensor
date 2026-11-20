@@ -265,16 +265,35 @@ func managerConfigFromFetchResult(result *managerclient.FetchResult) jobscope.Ma
 	}
 }
 
+// emitJobStartLog announces that scope is active for j. It is best effort:
+// a missing start record is exactly what downstream reconciliation flags, so
+// a failure here must never fail the start request.
+func (jr *JobRegistry) emitJobStartLog(ctx context.Context, j *job.Job, scope *jobscope.JobScopeState) {
+	err := scope.EmitJobStartLog(ctx, jobscope.JobStartLogInputs{
+		Identity:   j.Identity(),
+		Metadata:   j.Metadata(),
+		RunnerType: j.RunnerType(),
+	})
+	if err != nil {
+		jr.logger.WarnContext(ctx, "job_start_log_emit_failed",
+			"job_identity", j.Identity(),
+			"scope", string(scope.Type),
+			"error", err,
+		)
+	}
+}
+
 func (jr *JobRegistry) startManagerJobLogs(scope *jobscope.JobScopeState, identity jobcontext.JobIdentity, conn managerclient.Connection) {
 	if scope == nil || scope.OutputSettings == nil {
 		return
 	}
 	logs := joblogs.NewManagerJobLogs(joblogs.ManagerJobLogsConfig{
-		Logger:         jr.logger,
-		Connection:     conn,
-		Identity:       identity,
-		Type:           scope.Type,
-		OutputSettings: scope.OutputSettings,
+		Logger:           jr.logger,
+		Connection:       conn,
+		Identity:         identity,
+		GitHubCheckRunID: scope.GitHubCheckRunID,
+		Type:             scope.Type,
+		OutputSettings:   scope.OutputSettings,
 	})
 	scope.SetManagerJobLogs(logs)
 }

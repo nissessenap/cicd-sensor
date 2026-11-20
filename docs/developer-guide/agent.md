@@ -95,7 +95,7 @@ Metadata is attached to the Job for logs, reports, and search.
 | Job identity | `provider`, `provider_host`, `project_path` | Yes | Common provider identity for every Job |
 | GitHub identity | `github_run_id`, `github_job`, `github_run_attempt`, `github_runner_tracking_id` | Yes for GitHub Jobs | Identifies a GitHub Actions job run attempt and runner tracking ID |
 | GitLab identity | `gitlab_job_id` | Yes for GitLab Jobs | Identifies a GitLab CI job execution |
-| Job metadata | `commit_sha`, `ref_name`, `trigger`, `actor_id`, `actor_name`, `github_workflow_ref`, `github_workflow_sha`, `github_workflow`, `gitlab_job_name`, `gitlab_config_ref_uri` | No | Enriches logs, reports, and triage |
+| Job metadata | `commit_sha`, `ref_name`, `trigger`, `actor_id`, `actor_name`, `github_workflow_ref`, `github_workflow_sha`, `github_workflow`, `github_check_run_id`, `gitlab_job_name`, `gitlab_config_ref_uri` | No | Enriches logs, reports, and triage |
 
 ### Scope
 

@@ -14,6 +14,8 @@ import (
 const (
 	managerOutputChannelCap             = 10_000
 	runtimeEventManagerOutputChannelCap = 65_536
+	// A scope emits exactly one start record.
+	jobStartManagerOutputChannelCap = 1
 )
 
 type managerWorkerConfig struct {

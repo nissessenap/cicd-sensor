@@ -620,6 +620,63 @@ func TestJobScopeStateEmitSummaryLog_FlushesFinalRecord(t *testing.T) {
 	}
 }
 
+func TestJobScopeStateEmitSummaryLog_CheckRunIDSource(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		jobMetadata   jobcontext.JobMetadata
+		scopeCheckRun string
+		want          string
+	}{
+		{
+			name:          "project scope attached to a hook-created job supplies its own id",
+			jobMetadata:   testJobMetadata,
+			scopeCheckRun: "88812345678",
+			want:          "88812345678",
+		},
+		{
+			name:        "hook-only scope has no id to report",
+			jobMetadata: testJobMetadata,
+			want:        "",
+		},
+		{
+			name:          "job metadata wins so one job never reports two ids",
+			jobMetadata:   jobcontext.JobMetadata{GitHubCheckRunID: "111"},
+			scopeCheckRun: "222",
+			want:          "111",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			recorder := &recordingJobScopeBatches{}
+			scope := jobscope.NewProject()
+			scope.GitHubCheckRunID = tc.scopeCheckRun
+			logs := joblogs.NewForTesting(testJobScopeLogger, recorder.sendBatch)
+			logs.AttachSummaryRecorderForTesting(testJobIdentity, scope.Type, recorder.sendBatch)
+			scope.SetManagerJobLogs(logs)
+
+			if err := scope.EmitSummaryLog(t.Context(), jobscope.SummaryLogInputs{
+				Identity:   testJobIdentity,
+				Metadata:   tc.jobMetadata,
+				RunnerType: "machine",
+				StartedAt:  testEventTime,
+			}, "completed", testEventTime.Add(time.Minute)); err != nil {
+				t.Fatalf("emit summary log: %v", err)
+			}
+			entries := recorder.summaryEntries(t)
+			if len(entries) != 1 {
+				t.Fatalf("summary entries: got %d, want 1", len(entries))
+			}
+			if got := entries[0].GetJob().GetGithubCheckRunId(); got != tc.want {
+				t.Fatalf("job.github_check_run_id: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func readDebugRuntimeEventEntry(t *testing.T, debugDir string) *logv1beta1.RuntimeEventLogEntry {
 	t.Helper()
 
@@ -756,5 +813,19 @@ func TestJobScopeStateFlushManagerLogs_NoWorkersIsNoOp(t *testing.T) {
 	scope := jobscope.NewProject()
 	if err := scope.FlushManagerLogs(context.Background()); err != nil {
 		t.Fatalf("flush without workers: %v", err)
+	}
+}
+
+func TestJobScopeStateEmitJobStartLog_NilAndUnroutedScopesAreNoOps(t *testing.T) {
+	t.Parallel()
+
+	inputs := jobscope.JobStartLogInputs{Identity: testJobIdentity, Metadata: testJobMetadata, RunnerType: "machine"}
+	var nilScope *jobscope.JobScopeState
+	if err := nilScope.EmitJobStartLog(t.Context(), inputs); err != nil {
+		t.Fatalf("nil scope: %v", err)
+	}
+	// A scope without manager job logs (project-local config) has nowhere to send.
+	if err := jobscope.NewProject().EmitJobStartLog(t.Context(), inputs); err != nil {
+		t.Fatalf("scope without manager logs: %v", err)
 	}
 }

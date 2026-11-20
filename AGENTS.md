@@ -53,10 +53,12 @@ The files below add detail that only applies when touching specific paths. **The
 | `cmd/cicd-sensor` | Agent CLI |
 | `cmd/cicd-sensor-manager` | Manager server |
 | `cmd/cicd-sensorctl` | Report / attestation / rule validation CLI |
+| `cmd/cicd-sensor-reconciler` | Optional missing-telemetry reconciler server |
 | `internal/agent` | Agent runtime (Listener, JobRegistry, Job, Scope, KernelTracker) |
 | `internal/rule` | RuleSet / RuleModifier schema, resolution, CEL compile and evaluate |
 | `internal/manager` | Config service, collector ingest, output routing |
 | `internal/ctl` | Report and attestation generation |
+| `internal/reconciler` | `workflow_job` webhook, Pub/Sub record consumer, Postgres job store, verdict loop, findings output |
 | `proto/` | Connect / protobuf wire schema |
 | `rules/` | Baseline rule YAML |
 | `docs/` | Design source of truth (mdbook published from `cicd-sensor.github.io`) |

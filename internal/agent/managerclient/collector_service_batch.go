@@ -15,10 +15,13 @@ import (
 
 type LogBatch struct {
 	Identity jobcontext.JobIdentity
-	Scope    managerv1beta1.Scope
-	Type     managerv1beta1.LogType
-	Records  [][]byte
-	FlushAt  time.Time
+	// GitHubCheckRunID is sent next to the identity so the manager can bind
+	// it to the OIDC claim. It is not part of the job key.
+	GitHubCheckRunID string
+	Scope            managerv1beta1.Scope
+	Type             managerv1beta1.LogType
+	Records          [][]byte
+	FlushAt          time.Time
 }
 
 func BuildCollectorIngestLogBatch(batch LogBatch) (*managerv1beta1.IngestLogBatch, error) {
@@ -51,8 +54,10 @@ func BuildCollectorIngestLogBatch(batch LogBatch) (*managerv1beta1.IngestLogBatc
 		return nil, fmt.Errorf("close gzip collector ingest log batch: %w", err)
 	}
 
+	identity := protoconv.ToProtoJobIdentity(batch.Identity)
+	identity.GithubCheckRunId = batch.GitHubCheckRunID
 	return &managerv1beta1.IngestLogBatch{
-		JobIdentity:     protoconv.ToProtoJobIdentity(batch.Identity),
+		JobIdentity:     identity,
 		Scope:           batch.Scope,
 		LogType:         batch.Type,
 		CompressedJsonl: compressed.Bytes(),

@@ -39,6 +39,10 @@ type JobIdentity struct {
 	GithubJob              string `protobuf:"bytes,11,opt,name=github_job,json=githubJob,proto3" json:"github_job,omitempty"`
 	GithubRunAttempt       string `protobuf:"bytes,12,opt,name=github_run_attempt,json=githubRunAttempt,proto3" json:"github_run_attempt,omitempty"`
 	GithubRunnerTrackingId string `protobuf:"bytes,13,opt,name=github_runner_tracking_id,json=githubRunnerTrackingId,proto3" json:"github_runner_tracking_id,omitempty"`
+	// Check run ID of the job (`job.check_run_id`). Optional and not part of
+	// the job key: runner hooks cannot supply it. Carried here so the manager
+	// can bind it to the `check_run_id` OIDC claim.
+	GithubCheckRunId string `protobuf:"bytes,14,opt,name=github_check_run_id,json=githubCheckRunId,proto3" json:"github_check_run_id,omitempty"`
 	// GitLab-specific fields. Required when provider = "gitlab".
 	GitlabJobId   string `protobuf:"bytes,20,opt,name=gitlab_job_id,json=gitlabJobId,proto3" json:"gitlab_job_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -120,6 +124,13 @@ func (x *JobIdentity) GetGithubRunAttempt() string {
 func (x *JobIdentity) GetGithubRunnerTrackingId() string {
 	if x != nil {
 		return x.GithubRunnerTrackingId
+	}
+	return ""
+}
+
+func (x *JobIdentity) GetGithubCheckRunId() string {
+	if x != nil {
+		return x.GithubCheckRunId
 	}
 	return ""
 }
@@ -757,8 +768,11 @@ type OutputSettings struct {
 	// Agents treat absence as true so older managers never opt them into
 	// sending unredacted process arguments.
 	RedactProcessArgs *bool `protobuf:"varint,4,opt,name=redact_process_args,json=redactProcessArgs,proto3,oneof" json:"redact_process_args,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Opt-in: unset unless the manager routes the job_start log type. Managers
+	// that predate the field never set it, so agents stay silent by default.
+	JobStart      *OutputSetting `protobuf:"bytes,5,opt,name=job_start,json=jobStart,proto3" json:"job_start,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OutputSettings) Reset() {
@@ -819,11 +833,18 @@ func (x *OutputSettings) GetRedactProcessArgs() bool {
 	return false
 }
 
+func (x *OutputSettings) GetJobStart() *OutputSetting {
+	if x != nil {
+		return x.JobStart
+	}
+	return nil
+}
+
 var File_cicd_sensor_manager_v1beta1_types_proto protoreflect.FileDescriptor
 
 const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\n" +
-	"'cicd_sensor/manager/v1beta1/types.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a\x1bbuf/validate/validate.proto\"\xd8\x02\n" +
+	"'cicd_sensor/manager/v1beta1/types.proto\x12\x1bcicd_sensor.manager.v1beta1\x1a\x1bbuf/validate/validate.proto\"\x87\x03\n" +
 	"\vJobIdentity\x121\n" +
 	"\bprovider\x18\x01 \x01(\tB\x15\xbaH\x12r\x10R\x06githubR\x06gitlabR\bprovider\x12#\n" +
 	"\rprovider_host\x18\x02 \x01(\tR\fproviderHost\x12!\n" +
@@ -833,7 +854,8 @@ const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\n" +
 	"github_job\x18\v \x01(\tR\tgithubJob\x12,\n" +
 	"\x12github_run_attempt\x18\f \x01(\tR\x10githubRunAttempt\x129\n" +
-	"\x19github_runner_tracking_id\x18\r \x01(\tR\x16githubRunnerTrackingId\x12\"\n" +
+	"\x19github_runner_tracking_id\x18\r \x01(\tR\x16githubRunnerTrackingId\x12-\n" +
+	"\x13github_check_run_id\x18\x0e \x01(\tR\x10githubCheckRunId\x12\"\n" +
 	"\rgitlab_job_id\x18\x14 \x01(\tR\vgitlabJobId\"$\n" +
 	"\n" +
 	"StringList\x12\x16\n" +
@@ -901,12 +923,13 @@ const file_cicd_sensor_manager_v1beta1_types_proto_rawDesc = "" +
 	"\rOutputSetting\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
 	"\x15flush_threshold_bytes\x18\x02 \x01(\rR\x13flushThresholdBytes\x124\n" +
-	"\x16flush_interval_seconds\x18\x03 \x01(\rR\x14flushIntervalSeconds\"\xbe\x02\n" +
+	"\x16flush_interval_seconds\x18\x03 \x01(\rR\x14flushIntervalSeconds\"\x87\x03\n" +
 	"\x0eOutputSettings\x12H\n" +
 	"\tdetection\x18\x01 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\tdetection\x12O\n" +
 	"\rruntime_event\x18\x02 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\fruntimeEvent\x12D\n" +
 	"\asummary\x18\x03 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\asummary\x123\n" +
-	"\x13redact_process_args\x18\x04 \x01(\bH\x00R\x11redactProcessArgs\x88\x01\x01B\x16\n" +
+	"\x13redact_process_args\x18\x04 \x01(\bH\x00R\x11redactProcessArgs\x88\x01\x01\x12G\n" +
+	"\tjob_start\x18\x05 \x01(\v2*.cicd_sensor.manager.v1beta1.OutputSettingR\bjobStartB\x16\n" +
 	"\x14_redact_process_argsB\x95\x02\n" +
 	"\x1fcom.cicd_sensor.manager.v1beta1B\n" +
 	"TypesProtoP\x01Z\\github.com/cicd-sensor/cicd-sensor/internal/proto/cicd_sensor/manager/v1beta1;managerv1beta1\xa2\x02\x03CMX\xaa\x02\x1aCicdSensor.Manager.V1beta1\xca\x02\x1aCicdSensor\\Manager\\V1beta1\xe2\x02&CicdSensor\\Manager\\V1beta1\\GPBMetadata\xea\x02\x1cCicdSensor::Manager::V1beta1b\x06proto3"
@@ -953,12 +976,13 @@ var file_cicd_sensor_manager_v1beta1_types_proto_depIdxs = []int32{
 	9,  // 10: cicd_sensor.manager.v1beta1.OutputSettings.detection:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
 	9,  // 11: cicd_sensor.manager.v1beta1.OutputSettings.runtime_event:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
 	9,  // 12: cicd_sensor.manager.v1beta1.OutputSettings.summary:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
-	1,  // 13: cicd_sensor.manager.v1beta1.RuleSet.ListsEntry.value:type_name -> cicd_sensor.manager.v1beta1.StringList
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	9,  // 13: cicd_sensor.manager.v1beta1.OutputSettings.job_start:type_name -> cicd_sensor.manager.v1beta1.OutputSetting
+	1,  // 14: cicd_sensor.manager.v1beta1.RuleSet.ListsEntry.value:type_name -> cicd_sensor.manager.v1beta1.StringList
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_cicd_sensor_manager_v1beta1_types_proto_init() }

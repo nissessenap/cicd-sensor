@@ -70,10 +70,22 @@ func TestPubSubAttributes(t *testing.T) {
 		"flush_at":     "20260426073045123",
 		"log_type":     string(logtype.Detection),
 		"scope":        string(ScopeHost),
+		// Identity attributes let a consumer join records without trusting
+		// the record body.
+		"provider":           "github",
+		"provider_host":      "github.com",
+		"project_path":       "acme/example",
+		"github_run_id":      "123",
+		"github_run_attempt": "1",
 	}
 	for key, value := range want {
 		if got[key] != value {
 			t.Fatalf("attribute %s: got %q, want %q", key, got[key], value)
+		}
+	}
+	for _, absent := range []string{"github_check_run_id", "gitlab_job_id"} {
+		if _, ok := got[absent]; ok {
+			t.Fatalf("%s attribute should be omitted when the batch has none: %+v", absent, got)
 		}
 	}
 	if _, ok := got["content_encoding"]; ok {
@@ -128,5 +140,67 @@ func objectKeyTestBatch() IngestLogBatch {
 		FlushAt:    time.Date(2026, 4, 26, 7, 30, 45, 123_000_000, time.UTC),
 		ReceivedAt: time.Date(2026, 4, 26, 7, 0, 0, 0, time.UTC),
 		Body:       []byte{0x1f, 0x8b},
+	}
+}
+
+func TestPubSubAttributes_JobIdentityByProvider(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		batch      IngestLogBatch
+		want       map[string]string
+		wantAbsent []string
+	}{
+		{
+			name: "action-started GitHub job carries its check run id",
+			batch: IngestLogBatch{
+				LogType:          logtype.JobStart,
+				Identity:         jobcontext.GitHubJobIdentity("github.com", "acme/example", "44798508261", "matrix", "2", "runner-1"),
+				GitHubCheckRunID: "136504227286",
+				Scope:            ScopeProject,
+			},
+			want: map[string]string{
+				"log_type":            "job_start",
+				"scope":               "project",
+				"provider":            "github",
+				"project_path":        "acme/example",
+				"github_run_id":       "44798508261",
+				"github_run_attempt":  "2",
+				"github_check_run_id": "136504227286",
+			},
+			wantAbsent: []string{"gitlab_job_id", "github_job", "github_runner_tracking_id"},
+		},
+		{
+			name: "GitLab job carries its job id and no GitHub fields",
+			batch: IngestLogBatch{
+				LogType:  logtype.Summary,
+				Identity: jobcontext.GitLabJobIdentity("gitlab.com", "group/project", "14274377073"),
+				Scope:    ScopeHost,
+			},
+			want: map[string]string{
+				"provider":      "gitlab",
+				"provider_host": "gitlab.com",
+				"project_path":  "group/project",
+				"gitlab_job_id": "14274377073",
+			},
+			wantAbsent: []string{"github_run_id", "github_run_attempt", "github_check_run_id"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := pubsubAttributes(tc.batch)
+			for key, value := range tc.want {
+				if got[key] != value {
+					t.Errorf("attribute %s: got %q, want %q", key, got[key], value)
+				}
+			}
+			for _, key := range tc.wantAbsent {
+				if _, ok := got[key]; ok {
+					t.Errorf("attribute %s should be absent: %+v", key, got)
+				}
+			}
+		})
 	}
 }

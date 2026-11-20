@@ -88,6 +88,9 @@ type authPrincipal struct {
 	RepositoryOwnerID string
 	Ref               string
 	EventName         string
+	RunID             string
+	RunAttempt        string
+	CheckRunID        string
 }
 
 func (p authPrincipal) isOIDC() bool {
@@ -187,6 +190,9 @@ func newAuthMiddleware(logger *slog.Logger, opts authMiddlewareOptions) *authn.M
 				RepositoryOwnerID: principal.Claims.RepositoryOwnerID,
 				Ref:               principal.Claims.Ref,
 				EventName:         principal.Claims.EventName,
+				RunID:             principal.Claims.RunID,
+				RunAttempt:        principal.Claims.RunAttempt,
+				CheckRunID:        principal.Claims.CheckRunID,
 			}, nil
 
 		default:

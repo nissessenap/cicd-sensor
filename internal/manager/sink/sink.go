@@ -35,12 +35,15 @@ type FlushPolicy struct {
 // Sinks decide how to route it: object storage builds a deterministic key,
 // while Pub/Sub publishes the body with attributes.
 type IngestLogBatch struct {
-	LogType    logtype.LogType
-	Identity   jobcontext.JobIdentity
-	Scope      Scope
-	FlushAt    time.Time
-	ReceivedAt time.Time
-	Body       []byte
+	LogType  logtype.LogType
+	Identity jobcontext.JobIdentity
+	// GitHubCheckRunID is the optional check run ID sent next to Identity.
+	// It is not part of the job key and never part of an object key.
+	GitHubCheckRunID string
+	Scope            Scope
+	FlushAt          time.Time
+	ReceivedAt       time.Time
+	Body             []byte
 }
 
 // Sink is the minimal contract for writing one validated ingest batch.

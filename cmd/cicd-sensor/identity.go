@@ -31,6 +31,7 @@ type jobMetadataFlags struct {
 	GitHubWorkflowRef string
 	GitHubWorkflowSHA string
 	GitHubWorkflow    string
+	GitHubCheckRunID  string
 
 	// GitLab only.
 	GitLabJobName      string
@@ -57,6 +58,7 @@ func registerJobMetadataFlags(fs *flag.FlagSet, metadata *jobMetadataFlags) {
 	fs.StringVar(&metadata.GitHubWorkflowRef, "github-workflow-ref", "", "GitHub Actions workflow file ref.")
 	fs.StringVar(&metadata.GitHubWorkflowSHA, "github-workflow-sha", "", "GitHub Actions workflow file commit SHA.")
 	fs.StringVar(&metadata.GitHubWorkflow, "github-workflow", "", "GitHub Actions workflow name.")
+	fs.StringVar(&metadata.GitHubCheckRunID, "github-check-run-id", "", "GitHub Actions check run ID of this job (job.check_run_id).")
 	fs.StringVar(&metadata.GitLabJobName, "gitlab-job-name", "", "GitLab CI job name (CI_JOB_NAME).")
 	fs.StringVar(&metadata.GitLabConfigRefURI, "gitlab-config-ref-uri", "", "GitLab CI config file ref URI (CI_CONFIG_REF_URI).")
 }
@@ -120,6 +122,8 @@ func printOptionalMetadataFlagsHelp(w io.Writer) {
 	fmt.Fprintln(w, "        GitHub Actions workflow file commit SHA.")
 	fmt.Fprintln(w, "  --github-workflow NAME")
 	fmt.Fprintln(w, "        GitHub Actions workflow name.")
+	fmt.Fprintln(w, "  --github-check-run-id ID")
+	fmt.Fprintln(w, "        GitHub Actions check run ID of this job (job.check_run_id). No environment fallback exists.")
 	fmt.Fprintln(w, "  --gitlab-job-name NAME")
 	fmt.Fprintln(w, "        GitLab CI job name (CI_JOB_NAME).")
 	fmt.Fprintln(w, "  --gitlab-config-ref-uri URI")
@@ -267,6 +271,9 @@ func buildJobMetadataRequest(metadata jobMetadataFlags) map[string]string {
 	}
 	if metadata.GitHubWorkflow != "" {
 		req["github_workflow"] = metadata.GitHubWorkflow
+	}
+	if metadata.GitHubCheckRunID != "" {
+		req["github_check_run_id"] = metadata.GitHubCheckRunID
 	}
 	if metadata.GitLabJobName != "" {
 		req["gitlab_job_name"] = metadata.GitLabJobName

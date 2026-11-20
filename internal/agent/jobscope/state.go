@@ -35,6 +35,10 @@ type JobScopeState struct {
 	DefaultMaxAlertsPerRule int
 	// MonitorMode downgrades terminate actions to detect when rules are resolved.
 	MonitorMode bool
+	// GitHubCheckRunID is the check run ID from the start request that built
+	// this scope. Job metadata is fixed by whichever start created the Job, so
+	// a project scope attached to a host-created Job must carry its own copy.
+	GitHubCheckRunID string
 }
 
 // ProjectLocalConfig is only for project-local mode. Manager-backed project

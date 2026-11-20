@@ -235,6 +235,27 @@ logs:
 			},
 		},
 		{
+			name: "job_start_is_a_routable_log_type",
+			body: `
+sinks:
+  pubsub-liveness:
+    type: google_pubsub
+    project_id: cicd-sensor-prod
+    topic: liveness
+logs:
+  job_start:
+    sink: pubsub-liveness
+  summary:
+    sink: pubsub-liveness
+`,
+			assertCfg: func(t *testing.T, cfg StartupConfig) {
+				t.Helper()
+				if got := cfg.Logs["job_start"].Sink; got != "pubsub-liveness" {
+					t.Fatalf("job_start sink: got %q", got)
+				}
+			},
+		},
+		{
 			name: "sink_unknown_type",
 			body: `
 sinks:

@@ -119,6 +119,37 @@ func TestBuildCollectorIngestLogBatch_GitLabIdentity(t *testing.T) {
 	}
 }
 
+func TestBuildCollectorIngestLogBatch_CheckRunID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		checkRunID string
+	}{
+		{name: "action-started job sends the id for OIDC binding", checkRunID: "88812345678"},
+		{name: "hook-started job leaves the field unset", checkRunID: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			batch, err := BuildCollectorIngestLogBatch(LogBatch{
+				Identity:         jobcontext.GitHubJobIdentity("github.com", "acme/example", "1", "build", "1", "runner-1"),
+				GitHubCheckRunID: tc.checkRunID,
+				Scope:            managerv1beta1.Scope_SCOPE_PROJECT,
+				Type:             managerv1beta1.LogType_LOG_TYPE_SUMMARY,
+				Records:          [][]byte{[]byte(`{"ok":true}`)},
+				FlushAt:          time.Now(),
+			})
+			if err != nil {
+				t.Fatalf("build batch: %v", err)
+			}
+			if got := batch.GetJobIdentity().GetGithubCheckRunId(); got != tc.checkRunID {
+				t.Fatalf("github_check_run_id: got %q, want %q", got, tc.checkRunID)
+			}
+		})
+	}
+}
+
 func mustGunzipString(t *testing.T, compressed []byte) string {
 	t.Helper()
 	reader, err := gzip.NewReader(bytes.NewReader(compressed))
