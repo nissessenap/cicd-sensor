@@ -251,6 +251,7 @@ func TestCompileSetChecksBlockRulesAreKernelEvaluable(t *testing.T) {
 		name       string
 		rule       rule.Rule
 		wantReason string
+		wantSource string
 	}{
 		{
 			name: "destination-only block rule is accepted",
@@ -260,11 +261,13 @@ func TestCompileSetChecksBlockRulesAreKernelEvaluable(t *testing.T) {
 			name:       "block condition using process context names the field",
 			rule:       rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `process.exec_path == "/usr/bin/curl"`, Action: rule.RuleActionBlock},
 			wantReason: "process.exec_path",
+			wantSource: `process.exec_path == "/usr/bin/curl"`,
 		},
 		{
 			name:       "block exception using process context names the field",
 			rule:       rule.Rule{RuleID: "r", EventType: jobevent.NetworkConnect, Condition: `remote_port == 443`, Exceptions: `process.exec_path == "/usr/bin/apt"`, Action: rule.RuleActionBlock},
 			wantReason: "process.exec_path",
+			wantSource: `process.exec_path == "/usr/bin/apt"`,
 		},
 		{
 			name: "the same condition stays valid for a terminate rule",
@@ -286,6 +289,9 @@ func TestCompileSetChecksBlockRulesAreKernelEvaluable(t *testing.T) {
 			}
 			if !strings.Contains(compileErrors[0].Reason, tc.wantReason) {
 				t.Fatalf("reason %q does not name %q", compileErrors[0].Reason, tc.wantReason)
+			}
+			if compileErrors[0].Source != tc.wantSource {
+				t.Fatalf("source = %q, want %q", compileErrors[0].Source, tc.wantSource)
 			}
 		})
 	}

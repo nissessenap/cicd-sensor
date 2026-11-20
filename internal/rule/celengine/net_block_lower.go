@@ -2,6 +2,7 @@ package celengine
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -213,16 +214,7 @@ func matchPrefix(prefix netip.Prefix) netblock.Insn {
 		bits += ipv4MappedPrefix.Bits()
 	}
 	var mask netblock.Tuple
-	for i := range mask.Addr {
-		switch {
-		case bits >= 8:
-			mask.Addr[i] = 0xff
-			bits -= 8
-		case bits > 0:
-			mask.Addr[i] = ^byte(0xff >> bits)
-			bits = 0
-		}
-	}
+	copy(mask.Addr[:], net.CIDRMask(bits, len(mask.Addr)*8))
 	return netblock.Match(netblock.Tuple{Addr: prefix.Addr().As16()}, mask)
 }
 
