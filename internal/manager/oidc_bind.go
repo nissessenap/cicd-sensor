@@ -48,8 +48,8 @@ func jobIdentityFromMessage(msg any) (identity *managerv1beta1.JobIdentity, expo
 }
 
 // oidcJobIdentityInterceptor binds OIDC principals to JobIdentity: provider,
-// project_path, run ID, run attempt, and the check run ID when the request
-// carries one. Manager-token principals skip the check.
+// project_path, run ID, run attempt, and the check run ID when the token has
+// the claim. Manager-token principals skip the check.
 type oidcJobIdentityInterceptor struct {
 	logger *slog.Logger
 }
@@ -138,14 +138,20 @@ func (i oidcJobIdentityInterceptor) check(ctx context.Context, msg any) error {
 		}
 		return connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
+	if principal.CheckRunID == "" {
+		// No claim to bind to (GitHub Enterprise Server). The ID is only a
+		// correlation key, so drop it rather than reject the job's logs or
+		// pass on a value nothing vouches for.
+		identity.GithubCheckRunId = ""
+	}
 	applyVerifiedRepositoryIdentity(msg, principal.Repository)
 	return nil
 }
 
 // runIdentityMismatch returns the rejection reason when the request claims a
 // run the token was not issued for, or "" when the run identity is bound.
-// An empty claim never matches: a token that cannot vouch for a field must
-// not let the request assert it.
+// An empty run_id or run_attempt claim never matches: a token that cannot
+// vouch for a field must not let the request assert it.
 func runIdentityMismatch(identity *managerv1beta1.JobIdentity, principal authPrincipal) string {
 	if principal.RunID == "" || identity.GetGithubRunId() != principal.RunID {
 		return "run_id_mismatch"
@@ -154,8 +160,9 @@ func runIdentityMismatch(identity *managerv1beta1.JobIdentity, principal authPri
 		return "run_attempt_mismatch"
 	}
 	// The check run ID is optional on the request (runner hooks and older
-	// actions cannot supply it), so only a present value is bound.
-	if id := identity.GetGithubCheckRunId(); id != "" && id != principal.CheckRunID {
+	// actions cannot supply it) and in the token, so it is compared only
+	// when both carry one.
+	if id := identity.GetGithubCheckRunId(); id != "" && principal.CheckRunID != "" && id != principal.CheckRunID {
 		return "check_run_id_mismatch"
 	}
 	return ""

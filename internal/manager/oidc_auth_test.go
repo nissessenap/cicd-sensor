@@ -244,19 +244,22 @@ func TestOIDCJobIdentityInterceptor_RunBinding(t *testing.T) {
 		principal authPrincipal
 		identity  *managerv1beta1.JobIdentity
 		wantDeny  bool
+		// wantCheckRunID is the check run ID an accepted request keeps.
+		wantCheckRunID string
 	}{
-		{name: "own run and own check run are accepted", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "88812345678")},
+		{name: "own run and own check run are accepted", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "88812345678"), wantCheckRunID: "88812345678"},
 		{name: "hook-started job without check run id is still accepted", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "")},
 		{name: "another run of the same repository is rejected", principal: tokenWithCheckRun, identity: identity("44798508262", "2", "88812345678"), wantDeny: true},
 		{name: "another attempt of the same run is rejected", principal: tokenWithCheckRun, identity: identity("44798508261", "1", "88812345678"), wantDeny: true},
 		{name: "another job of the same run is rejected", principal: tokenWithCheckRun, identity: identity("44798508261", "2", "88812345679"), wantDeny: true},
 		{name: "request without run id cannot ride on a valid token", principal: tokenWithCheckRun, identity: identity("", "2", ""), wantDeny: true},
 		{name: "request without run attempt cannot ride on a valid token", principal: tokenWithCheckRun, identity: identity("44798508261", "", ""), wantDeny: true},
-		{name: "token without check_run_id claim cannot vouch for one", principal: tokenWithoutCheckRun, identity: identity("44798508261", "2", "88812345678"), wantDeny: true},
+		{name: "token without check_run_id claim keeps the logs and drops the unvouched id", principal: tokenWithoutCheckRun, identity: identity("44798508261", "2", "88812345678")},
+		{name: "token without check_run_id claim still rejects another run", principal: tokenWithoutCheckRun, identity: identity("44798508262", "2", "88812345678"), wantDeny: true},
 		{name: "token without check_run_id claim still binds the run", principal: tokenWithoutCheckRun, identity: identity("44798508261", "2", "")},
 		{name: "token without run claims binds nothing and is rejected", principal: tokenWithoutRunClaims, identity: identity("", "", ""), wantDeny: true},
 		{name: "ids are compared exactly, not numerically", principal: tokenWithCheckRun, identity: identity("044798508261", "2", ""), wantDeny: true},
-		{name: "manager-token principals stay unbound", principal: authPrincipal{Kind: oidcauth.AuthKindManagerToken}, identity: identity("1", "1", "1")},
+		{name: "manager-token principals stay unbound", principal: authPrincipal{Kind: oidcauth.AuthKindManagerToken}, identity: identity("1", "1", "1"), wantCheckRunID: "1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -273,6 +276,9 @@ func TestOIDCJobIdentityInterceptor_RunBinding(t *testing.T) {
 				}
 				if err != nil {
 					t.Fatalf("check(%T): %v", msg, err)
+				}
+				if got := tc.identity.GetGithubCheckRunId(); got != tc.wantCheckRunID {
+					t.Fatalf("check(%T) check run id: got %q, want %q", msg, got, tc.wantCheckRunID)
 				}
 			}
 		})

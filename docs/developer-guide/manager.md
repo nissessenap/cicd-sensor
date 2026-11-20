@@ -140,7 +140,7 @@ A mismatch is rejected with `permission_denied` and logged as `manager_oidc_bind
 | `project_path` | `repository` | Must match, case-insensitively |
 | `github_run_id` | `run_id` | Must match exactly |
 | `github_run_attempt` | `run_attempt` | Must match exactly |
-| `github_check_run_id` | `check_run_id` | Must match exactly when the request carries one. A token without the claim (GitHub Enterprise Server) cannot vouch for it, so such a request is rejected |
+| `github_check_run_id` | `check_run_id` | Must match exactly when the request carries one. A token without the claim (GitHub Enterprise Server) cannot vouch for it, so the Manager removes the ID from the request and accepts it; the logs are delivered without `github_check_run_id` |
 
 This stops a job from fetching config or sending logs as another run, attempt, or job of the same repository.
 It does not stop a compromised job from sending false records about itself.
