@@ -397,7 +397,7 @@ func TestHTTPHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			recorder := httptest.NewRecorder()
-			newHTTPHandler(tc.db, metrics).ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
+			newHTTPHandler(tc.db, metrics, http.NotFoundHandler()).ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
 			if recorder.Code != tc.wantStatus {
 				t.Fatalf("status: got %d, want %d", recorder.Code, tc.wantStatus)
 			}

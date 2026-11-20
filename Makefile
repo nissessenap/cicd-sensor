@@ -39,6 +39,8 @@ help:
 	@printf '  %-29s %s\n' 'make rules-artifact-validate' 'pull and validate an OCI rules artifact'
 	@printf '  %-29s %s\n' 'make integration' 'run integration tests'
 	@printf '  %-29s %s\n' 'make bpf-integration' 'run privileged BPF integration tests'
+	@printf '  %-29s %s\n' 'make reconciler-integration' 'run reconciler store tests against Postgres'
+	@printf '  %-29s %s\n' 'make reconciler-e2e' 'run the reconciler docker-compose end-to-end test'
 	@printf '  %-29s %s\n' 'make vendor' 'refresh vendor/ from go.mod'
 	@printf '  %-29s %s\n' 'make clean' 'remove local build outputs'
 
@@ -128,6 +130,23 @@ integration:
 .PHONY: bpf-integration
 bpf-integration:
 	$(SUDO) -n env GOCACHE=$(GOCACHE) $(GO) test $(GO_MOD_FLAG) -tags bpf_integration -count=1 ./internal/agent/kerneltracker/...
+
+# Store tests need a disposable Postgres; they truncate its jobs table.
+.PHONY: reconciler-integration
+reconciler-integration:
+	@test -n "$(CICD_SENSOR_RECONCILER_TEST_POSTGRES_DSN)" || { echo "CICD_SENSOR_RECONCILER_TEST_POSTGRES_DSN is required"; exit 1; }
+	$(GO) test $(GO_MOD_FLAG) -tags integration -race -count=1 ./internal/reconciler
+
+RECONCILER_E2E_COMPOSE := $(DOCKER) compose -f internal/reconciler/e2e/docker-compose.yaml
+
+.PHONY: reconciler-e2e
+reconciler-e2e:
+	$(RECONCILER_E2E_COMPOSE) down --volumes --remove-orphans
+	$(RECONCILER_E2E_COMPOSE) up --build --detach --wait postgres pubsub
+	$(RECONCILER_E2E_COMPOSE) up --build --detach manager reconciler
+	$(GO) test $(GO_MOD_FLAG) -tags reconciler_e2e -count=1 ./internal/reconciler/e2e; status=$$?; \
+		if [ $$status -ne 0 ]; then $(RECONCILER_E2E_COMPOSE) logs manager reconciler; fi; \
+		$(RECONCILER_E2E_COMPOSE) down --volumes --remove-orphans; exit $$status
 
 .PHONY: rules-validate
 rules-validate:

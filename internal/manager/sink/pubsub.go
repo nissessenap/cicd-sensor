@@ -102,13 +102,32 @@ func (s *pubsubSink) Close() error {
 	return s.client.Close()
 }
 
+// pubsubAttributes carries the batch's job identity next to each record. The
+// manager never parses record bodies, so for OIDC-authenticated agents these
+// attributes are the only job identity bound to the token's claims; consumers
+// that need a trustworthy identity must read it here, not from the body.
 func pubsubAttributes(batch IngestLogBatch) map[string]string {
-	return map[string]string{
-		"content_type": "application/json",
-		"flush_at":     formatFlushAt(batch.FlushAt),
-		"log_type":     string(batch.LogType),
-		"scope":        string(batch.Scope),
+	attrs := map[string]string{
+		"content_type":  "application/json",
+		"flush_at":      formatFlushAt(batch.FlushAt),
+		"log_type":      string(batch.LogType),
+		"scope":         string(batch.Scope),
+		"provider":      string(batch.Identity.Provider),
+		"provider_host": batch.Identity.ProviderHost,
+		"project_path":  batch.Identity.ProjectPath,
 	}
+	// Absent fields are omitted so consumers can test for presence.
+	for key, value := range map[string]string{
+		"github_run_id":       batch.Identity.GitHubRunID,
+		"github_run_attempt":  batch.Identity.GitHubRunAttempt,
+		"github_check_run_id": batch.GitHubCheckRunID,
+		"gitlab_job_id":       batch.Identity.GitLabJobID,
+	} {
+		if value != "" {
+			attrs[key] = value
+		}
+	}
+	return attrs
 }
 
 func (s *pubsubSink) Name() string {

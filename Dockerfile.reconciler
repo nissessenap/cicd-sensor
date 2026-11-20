@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.28
+#
+# cicd-sensor-reconciler container image.
+#
+
+FROM --platform=${BUILDPLATFORM:-linux/amd64} cgr.dev/chainguard/go:latest@sha256:884f77f46d3521dac40a11359c50188ea376642d76bafa004205f97da006ca0b AS builder
+WORKDIR /src
+
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY cmd ./cmd
+COPY internal ./internal
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+
+ENV CGO_ENABLED=0
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+        -mod=vendor \
+        -trimpath \
+        -buildvcs=false \
+        -ldflags="-s -w -X github.com/cicd-sensor/cicd-sensor/internal/version.Current=${VERSION}" \
+        -o /out/cicd-sensor-reconciler \
+        ./cmd/cicd-sensor-reconciler
+
+FROM cgr.dev/chainguard/static:latest@sha256:9e2306b457ff71ce370043dc68c7b52bb1e6622c1c6c6714edbed57496f3116e
+COPY --from=builder /out/cicd-sensor-reconciler /usr/local/bin/cicd-sensor-reconciler
+
+ENV CICD_SENSOR_RECONCILER_CONFIG_FILE=/etc/cicd-sensor/reconciler.yaml
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/cicd-sensor-reconciler"]

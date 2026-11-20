@@ -1,0 +1,13 @@
+# Manager config for the reconciler e2e stack. Only the two log types the
+# reconciler reads are routed; routing job_start is what opts agents in.
+sinks:
+  pubsub-liveness:
+    type: google_pubsub
+    project_id: e2e
+    topic: sensor-logs
+
+logs:
+  job_start:
+    sink: pubsub-liveness
+  summary:
+    sink: pubsub-liveness

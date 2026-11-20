@@ -1,0 +1,79 @@
+# End-to-end stack for the reconciler: the real manager and reconciler
+# binaries, Postgres, and the Pub/Sub emulator. There is no Agent (it needs
+# eBPF); the test replays fixture records through the manager instead.
+#
+# Run it with `make reconciler-e2e` from the repository root.
+name: cicd-sensor-reconciler-e2e
+
+services:
+  postgres:
+    image: postgres:18-alpine@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
+    environment:
+      POSTGRES_USER: reconciler
+      POSTGRES_PASSWORD: reconciler
+      POSTGRES_DB: reconciler
+    ports:
+      - "127.0.0.1:${E2E_POSTGRES_PORT:-15432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reconciler -d reconciler"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:584.0.0-emulators@sha256:45a15cc163d2df13137478856b4b9bb90426100fa8aec542269460c10110b727
+    # The emulator starts empty, so the same container creates the topics
+    # and subscriptions the manager, the reconciler, and the test expect.
+    command:
+      - sh
+      - -ec
+      - |
+        gcloud beta emulators pubsub start --project=e2e --host-port=0.0.0.0:8085 &
+        api=http://localhost:8085/v1/projects/e2e
+        until curl -sf -X PUT "$$api/topics/sensor-logs"; do sleep 1; done
+        curl -sf -X PUT "$$api/topics/findings"
+        curl -sf -X PUT -H 'Content-Type: application/json' \
+          -d '{"topic":"projects/e2e/topics/sensor-logs"}' "$$api/subscriptions/reconciler"
+        curl -sf -X PUT -H 'Content-Type: application/json' \
+          -d '{"topic":"projects/e2e/topics/findings"}' "$$api/subscriptions/findings-e2e"
+        wait
+    ports:
+      - "127.0.0.1:${E2E_PUBSUB_PORT:-18085}:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8085/v1/projects/e2e/subscriptions/findings-e2e"]
+      interval: 1s
+      timeout: 3s
+      retries: 90
+
+  manager:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile.manager
+    environment:
+      CICD_SENSOR_MANAGER_TOKEN: sk_cs_e2e0000000000000000000000000000000000000000000000000000000000000000
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+    volumes:
+      - ./manager.yaml:/etc/cicd-sensor/manager.yaml:ro
+    ports:
+      - "127.0.0.1:${E2E_MANAGER_PORT:-18080}:8080"
+    depends_on:
+      pubsub:
+        condition: service_healthy
+
+  reconciler:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile.reconciler
+    environment:
+      CICD_SENSOR_RECONCILER_POSTGRES_DSN: postgres://reconciler:reconciler@postgres:5432/reconciler?sslmode=disable
+      CICD_SENSOR_RECONCILER_GITHUB_WEBHOOK_SECRET: e2e-webhook-secret
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+    volumes:
+      - ./reconciler.yaml:/etc/cicd-sensor/reconciler.yaml:ro
+    ports:
+      - "127.0.0.1:${E2E_RECONCILER_PORT:-18081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub:
+        condition: service_healthy

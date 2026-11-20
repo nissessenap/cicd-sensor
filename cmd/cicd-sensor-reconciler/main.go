@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	configFileEnv  = "CICD_SENSOR_RECONCILER_CONFIG_FILE"
-	postgresDSNEnv = "CICD_SENSOR_RECONCILER_POSTGRES_DSN"
+	configFileEnv    = "CICD_SENSOR_RECONCILER_CONFIG_FILE"
+	postgresDSNEnv   = "CICD_SENSOR_RECONCILER_POSTGRES_DSN"
+	webhookSecretEnv = "CICD_SENSOR_RECONCILER_GITHUB_WEBHOOK_SECRET"
 )
 
 func main() {
@@ -35,6 +36,8 @@ func main() {
 		fmt.Fprintln(out, "        Reconciler config YAML.")
 		fmt.Fprintln(out, "  "+postgresDSNEnv)
 		fmt.Fprintln(out, "        Postgres connection string.")
+		fmt.Fprintln(out, "  "+webhookSecretEnv)
+		fmt.Fprintln(out, "        Secret configured on the GitHub workflow_job webhook.")
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Optional:")
 		fmt.Fprintln(out, "  --version, -v")
@@ -77,6 +80,7 @@ func run(ctx context.Context, logger *slog.Logger, configFile string) error {
 		"grace_period", cfg.GracePeriod.String(),
 	)
 	return reconciler.Run(ctx, logger, cfg, reconciler.Secrets{
-		PostgresDSN: os.Getenv(postgresDSNEnv),
+		PostgresDSN:         os.Getenv(postgresDSNEnv),
+		GitHubWebhookSecret: os.Getenv(webhookSecretEnv),
 	})
 }

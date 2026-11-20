@@ -101,3 +101,53 @@ func TestCollectorWire_JobStart(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectorWire_CheckRunID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		checkRunID string
+		wantCode   connect.Code
+	}{
+		{name: "check run id travels to the sink next to the identity", checkRunID: "136504227286"},
+		{name: "batch from a hook-started job has none", checkRunID: ""},
+		{name: "non-numeric check run id never becomes a sink attribute", checkRunID: "1; drop", wantCode: connect.CodeInvalidArgument},
+		{name: "zero is not a GitHub id", checkRunID: "0", wantCode: connect.CodeInvalidArgument},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dst := sinktest.New("dst")
+			client, cleanup := newCollectorWireClient(t, testManagerSecret, newOutputRouterForTest(map[logtype.LogType]sink.Sink{
+				logtype.Summary: dst,
+			}))
+			defer cleanup()
+
+			identity := validCollectorIdentity()
+			identity.GithubCheckRunId = tc.checkRunID
+			batch := validIngestLogBatch(identity, gzipPayload(t, `{"log_type":"cicd_sensor.summary"}`+"\n"))
+			batch.LogType = managerv1beta1.LogType_LOG_TYPE_SUMMARY
+			_, err := client.send(t.Context(), testManagerSecret, batch)
+			if tc.wantCode != 0 {
+				if got := connect.CodeOf(err); got != tc.wantCode {
+					t.Fatalf("code: got %v, want %v (err=%v)", got, tc.wantCode, err)
+				}
+				if len(dst.Batches()) != 0 {
+					t.Fatal("rejected batch must not reach the sink")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("send batch: %v", err)
+			}
+			batches := dst.Batches()
+			if len(batches) != 1 {
+				t.Fatalf("batches: got %d, want 1", len(batches))
+			}
+			if got := batches[0].GitHubCheckRunID; got != tc.checkRunID {
+				t.Fatalf("sink batch check run id: got %q, want %q", got, tc.checkRunID)
+			}
+		})
+	}
+}

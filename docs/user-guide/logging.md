@@ -84,6 +84,9 @@ If the first send fails, the Agent retries once when the job finalizes.
 `job_start` is a liveness signal, not a tamper-proof one.
 A process that takes over the job can still forge a Summary for its own job.
 
+Neither log can show that the sensor never ran at all.
+[Missing telemetry](missing-telemetry.md) describes the optional reconciler that compares these logs with GitHub's job list.
+
 ## Runtime event format
 
 Both the `detection` and `runtime_event` logs include an `event` object.

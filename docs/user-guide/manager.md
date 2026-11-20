@@ -236,7 +236,7 @@ Use this mapping to choose patterns such as storing all logs in one GCS destinat
 | `aws_s3` | `uri`, `region` | `use_path_style` | `uri` is an `s3://...` object-storage URI. Include any desired object key path in the URI. Set `use_path_style: true` to use path-style addressing (`endpoint/bucket`) instead of virtual-hosted-style (`bucket.endpoint`); see [AWS (S3)](#aws-s3) for targeting S3-compatible stores. |
 | `google_storage` | `uri` | | `uri` is a `gs://...` object-storage URI. Include any desired object key path in the URI. |
 | `azure_blob` | `uri` | | `uri` is an `https://<account>.blob.core.windows.net/<container>/...` blob URL. Include any desired object key path in the URI. |
-| `google_pubsub` | `project_id`, `topic` | | Publishes one plain JSON record per message. |
+| `google_pubsub` | `project_id`, `topic` | | Publishes one plain JSON record per message. Message attributes carry `log_type`, `scope`, and the job identity the manager authenticated (`provider`, `provider_host`, `project_path`, and `github_run_id` / `github_run_attempt` / `github_check_run_id` or `gitlab_job_id` when present). |
 
 Store logs in GCS:
 

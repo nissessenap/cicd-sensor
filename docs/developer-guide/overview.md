@@ -12,10 +12,12 @@ The goal is to understand the main subsystem responsibilities and boundaries.
 | `cmd/cicd-sensor` | CLI for the Agent and CI integration |
 | `cmd/cicd-sensor-manager` | Manager server |
 | `cmd/cicd-sensorctl` | Utility CLI for reports, attestations, rule validation, and related tasks |
+| `cmd/cicd-sensor-reconciler` | Optional service that reports completed jobs with missing telemetry |
 | `internal/agent` | Agent runtime that observes CI/CD job runtime |
 | `internal/rule` | RuleSet / RuleModifier schema, resolution, CEL compile, and evaluation |
 | `internal/manager` | Config service, collector ingest, and output routing |
 | `internal/ctl` | Report and attestation generation |
+| `internal/reconciler` | Reconciler: `workflow_job` webhook, sink consumer, Postgres job store, verdict loop |
 
 ## Reading order
 

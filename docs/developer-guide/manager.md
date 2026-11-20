@@ -97,6 +97,10 @@ The Agent sends the start record immediately and ignores any batching policy for
 The Manager treats the log batch as the delivery unit.
 It does not interpret runtime events or evaluate detections.
 
+The Pub/Sub sink copies the batch's `JobIdentity` into message attributes.
+Record bodies are never parsed by the Manager, so for OIDC principals these attributes are the only job identity that is bound to the token's claims.
+A consumer that needs a trustworthy job identity, such as `cicd-sensor-reconciler`, must read the attributes and treat the `job` object in the body as job-controlled.
+
 Cloud credentials are held only by the Manager process.
 Agents do not receive cloud credentials.
 
