@@ -51,7 +51,9 @@ func metadataProto(startedAt, generatedAt time.Time) *attestationv1alpha1.Metada
 func ruleHitProtos(hits []resultdoc.HitRecord) []*attestationv1alpha1.RuleHitSummary {
 	out := make([]*attestationv1alpha1.RuleHitSummary, 0, len(hits))
 	for _, h := range hits {
-		if h.Action != string(rule.RuleActionDetect) && h.Action != string(rule.RuleActionTerminate) {
+		switch rule.RuleAction(h.Action) {
+		case rule.RuleActionDetect, rule.RuleActionTerminate, rule.RuleActionBlock:
+		default:
 			continue
 		}
 		out = append(out, &attestationv1alpha1.RuleHitSummary{

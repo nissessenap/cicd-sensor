@@ -43,6 +43,8 @@ func EvaluateEvent(
 
 	activation.Reset(celInputEventFromRecord(event))
 	anyHit := false
+	blocked := event.BlockedByKernel()
+	blockRuleHit := false
 
 	for _, compiled := range eval.RulesByType[event.EventType] {
 		if compiled.CompiledCondition == nil {
@@ -96,8 +98,18 @@ func EvaluateEvent(
 			Action:    string(compiled.Action),
 			MaxAlerts: compiled.MaxAlerts,
 		}
-		if compiled.Action == rule.RuleActionTerminate {
+		switch compiled.Action {
+		case rule.RuleActionTerminate:
 			terminateProcess(ctx, event, logger)
+		case rule.RuleActionBlock:
+			blockRuleHit = true
+			if !blocked && logger != nil {
+				// Expected only for connects that raced the program install.
+				logger.WarnContext(ctx, "network_block_not_enforced",
+					"canonical_rule_id", compiled.CanonicalRuleID,
+					"event_id", event.ID,
+				)
+			}
 		}
 
 		if compiled.FeedHost && host != nil {
@@ -109,6 +121,12 @@ func EvaluateEvent(
 			project.WriteDetectionLogForHit(ctx, identity, metadata, runnerType, recordedHit, event, logger)
 		}
 		anyHit = true
+	}
+
+	if blocked && !blockRuleHit && logger != nil {
+		// The kernel refused a connect that no block rule explains. CEL is
+		// the definition, so this is a lowering bug; the block stands.
+		logger.ErrorContext(ctx, "network_block_mismatch", "event_id", event.ID)
 	}
 
 	if anyHit {

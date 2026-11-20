@@ -47,6 +47,12 @@ func (jr *JobRegistry) ApplyGitHubHostStart(ctx context.Context, identity jobcon
 	if err := job.SetHostScope(ctx, hostScope); err != nil {
 		return nil, err
 	}
+	// Install before the first cgroup is bound so no tracked process ever
+	// runs without the Job's block rules.
+	if err := jr.installNetworkBlockProgram(ctx, job); err != nil {
+		jr.removeJobAfterStartFailure(ctx, identity, "github_host_start")
+		return nil, err
+	}
 
 	if jr.kernelTracker != nil {
 		// GitHub host start can seed tracking immediately from the caller cgroup.
@@ -101,6 +107,12 @@ func (jr *JobRegistry) ApplyGitLabHostStart(ctx context.Context, identity jobcon
 	if err := job.SetHostScope(ctx, hostScope); err != nil {
 		return nil, err
 	}
+	// Staging is refused until this start returns, so the program is in
+	// place before any cgroup of the Job is tracked.
+	if err := jr.installNetworkBlockProgram(ctx, job); err != nil {
+		jr.removeJobAfterStartFailure(ctx, identity, "gitlab_host_start")
+		return nil, err
+	}
 	return job, nil
 }
 
@@ -114,8 +126,11 @@ func (jr *JobRegistry) buildHostScopeFromManagerConfig(ctx context.Context, iden
 	if err := hostScope.ApplyManagerConfig(managerConfig); err != nil {
 		return nil, err
 	}
-	jr.startManagerJobLogs(hostScope, identity, hostManagerConnection)
 	hostScope.ResolveRules(identity)
+	if err := jr.validateNetworkBlockRules(hostScope); err != nil {
+		return nil, err
+	}
+	jr.startManagerJobLogs(hostScope, identity, hostManagerConnection)
 	return hostScope, nil
 }
 

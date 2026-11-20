@@ -71,6 +71,12 @@ func (jr *JobRegistry) attachGitHubProjectScopeToExistingJob(
 	if err := existing.SetProjectScope(ctx, projectScope); err != nil {
 		return nil, err
 	}
+	// The Job is already running, so a failure here cannot undo the attach:
+	// the start fails loudly, and the scope's block rules keep recording
+	// hits without being enforced.
+	if err := jr.installNetworkBlockProgram(ctx, existing); err != nil {
+		return nil, err
+	}
 	return existing, nil
 }
 
@@ -98,6 +104,12 @@ func (jr *JobRegistry) startGitHubProjectOnlyJob(
 
 	// SetProjectScope installs evaluation before the hosted cgroup starts routing.
 	if err := job.SetProjectScope(ctx, projectScope); err != nil {
+		return nil, err
+	}
+	// Install before the first cgroup is bound so no tracked process ever
+	// runs without the Job's block rules.
+	if err := jr.installNetworkBlockProgram(ctx, job); err != nil {
+		jr.removeJobAfterStartFailure(ctx, cfg.Identity, "github_project_start")
 		return nil, err
 	}
 	if jr.kernelTracker != nil {
@@ -134,8 +146,11 @@ func (jr *JobRegistry) buildProjectScopeFromManagerConfig(ctx context.Context, i
 	if err := projectScope.ApplyManagerConfig(managerConfig); err != nil {
 		return nil, err
 	}
-	jr.startManagerJobLogs(projectScope, identity, projectManagerConnection)
 	projectScope.ResolveRules(identity)
+	if err := jr.validateNetworkBlockRules(projectScope); err != nil {
+		return nil, err
+	}
+	jr.startManagerJobLogs(projectScope, identity, projectManagerConnection)
 	return projectScope, nil
 }
 
@@ -159,5 +174,8 @@ func (jr *JobRegistry) buildProjectScopeFromLocalConfig(ctx context.Context, ide
 		return nil, err
 	}
 	projectScope.ResolveRules(identity)
+	if err := jr.validateNetworkBlockRules(projectScope); err != nil {
+		return nil, err
+	}
 	return projectScope, nil
 }

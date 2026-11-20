@@ -30,6 +30,7 @@ type Agent struct {
 	shutdownGrace             time.Duration
 	jobTTL                    time.Duration
 	enableHTTPRequest         bool
+	enableNetworkBlock        bool
 	reaperCancel              context.CancelFunc
 	cancelEngine              context.CancelFunc
 	engineDone                <-chan error
@@ -78,6 +79,11 @@ func (a *Agent) SetHTTPRequestEnabled(enabled bool) {
 	a.enableHTTPRequest = enabled
 }
 
+// SetNetworkBlockEnabled lets rules use action block to refuse connects.
+func (a *Agent) SetNetworkBlockEnabled(enabled bool) {
+	a.enableNetworkBlock = enabled
+}
+
 // SetGitHubK8sRunnerSocketPath enables the GitHub Kubernetes runner socket.
 func (a *Agent) SetGitHubK8sRunnerSocketPath(path string) {
 	a.githubK8sRunnerSocketPath = path
@@ -114,9 +120,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	jobRegistry := jobregistry.New(a.logger)
 	jobRegistry.SetJobTTL(a.jobTTL)
+	jobRegistry.SetNetworkBlockEnabled(a.enableNetworkBlock)
 
 	kernelTracker, err := kerneltracker.NewWithConfig(a.logger, jobRegistry, kerneltracker.Config{
-		EnableHTTPRequest: a.enableHTTPRequest,
+		EnableHTTPRequest:  a.enableHTTPRequest,
+		EnableNetworkBlock: a.enableNetworkBlock,
 	})
 	if err != nil {
 		return fmt.Errorf("new kernel tracker: %w", err)

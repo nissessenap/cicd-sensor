@@ -127,7 +127,7 @@ func RenderStepSummary(w io.Writer, result resultdoc.JobEventSummaryForReport, o
 func topStepSummaryRuleHits(hits []resultdoc.HitRecord, limit int) []stepSummaryRuleHit {
 	out := make([]stepSummaryRuleHit, 0, len(hits))
 	for _, h := range hits {
-		if h.Action != "detect" && h.Action != "terminate" {
+		if h.Action != "detect" && h.Action != "terminate" && h.Action != "block" {
 			continue
 		}
 		procs := map[string]struct{}{}
@@ -300,8 +300,11 @@ func stepSummaryDisplayText(value string, maxRunes int, fallback string) string 
 }
 
 func stepSummaryActionEmoji(action string) string {
-	if action == "terminate" {
+	switch action {
+	case "terminate":
 		return "🛑"
+	case "block":
+		return "🚫"
 	}
 	return "⚠️"
 }

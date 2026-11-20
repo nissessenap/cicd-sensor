@@ -53,17 +53,19 @@ func (jr *JobRegistry) StageCgroupBasenameForJob(ctx context.Context, basename s
 // removes the Job on failure. The KernelTracker keeps cgroup tracking as truth.
 func (jr *JobRegistry) bindStartProcessCgroupToJob(ctx context.Context, identity jobcontext.JobIdentity, startPID int32, scope string) error {
 	if startPID <= 0 {
-		jr.removeJobAfterProcessCgroupBindFailure(ctx, identity, scope)
+		jr.removeJobAfterStartFailure(ctx, identity, scope)
 		return fmt.Errorf("bind process cgroup to job: invalid start pid %d", startPID)
 	}
 	if err := jr.kernelTracker.BindProcessCgroupToJob(ctx, identity, startPID); err != nil {
-		jr.removeJobAfterProcessCgroupBindFailure(ctx, identity, scope)
+		jr.removeJobAfterStartFailure(ctx, identity, scope)
 		return fmt.Errorf("bind process cgroup to job: %w", err)
 	}
 	return nil
 }
 
-func (jr *JobRegistry) removeJobAfterProcessCgroupBindFailure(ctx context.Context, identity jobcontext.JobIdentity, scope string) {
+// removeJobAfterStartFailure unwinds a Job whose start failed after it was
+// registered, so the failed start leaves nothing tracked or enforced.
+func (jr *JobRegistry) removeJobAfterStartFailure(ctx context.Context, identity jobcontext.JobIdentity, scope string) {
 	if jr.kernelTracker != nil {
 		// Unwind should drain even if the caller canceled mid-start.
 		if err := jr.kernelTracker.RemoveJob(context.Background(), identity); err != nil {

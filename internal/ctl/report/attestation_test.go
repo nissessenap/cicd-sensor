@@ -133,7 +133,7 @@ func TestRenderAttestation_HappyPath(t *testing.T) {
 	}
 }
 
-func TestAttestationPredicate_KeepsDetectAndTerminateActions(t *testing.T) {
+func TestAttestationPredicate_KeepsPolicyOutcomeActions(t *testing.T) {
 	t.Parallel()
 
 	log := resultdoc.JobEventSummaryForReport{
@@ -143,6 +143,7 @@ func TestAttestationPredicate_KeepsDetectAndTerminateActions(t *testing.T) {
 		Hits: []resultdoc.HitRecord{
 			{RulesetID: "s", RuleID: "warn-rule", Action: "detect", HitCount: 2},
 			{RulesetID: "s", RuleID: "kill-rule", Action: "terminate", HitCount: 1},
+			{RulesetID: "s", RuleID: "deny-rule", Action: "block", HitCount: 3},
 			{RulesetID: "s", RuleID: "collect-rule", Action: "collect", HitCount: 5},
 		},
 	}
@@ -156,8 +157,8 @@ func TestAttestationPredicate_KeepsDetectAndTerminateActions(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if len(got.MonitorLog.Detections) != 2 {
-		t.Fatalf("detections: got %#v, want 2 entries (warn + kill)", got.MonitorLog.Detections)
+	if len(got.MonitorLog.Detections) != 3 {
+		t.Fatalf("detections: got %#v, want 3 entries (warn + kill + deny)", got.MonitorLog.Detections)
 	}
 	want := map[string]struct {
 		action string
@@ -165,6 +166,7 @@ func TestAttestationPredicate_KeepsDetectAndTerminateActions(t *testing.T) {
 	}{
 		"warn-rule": {"detect", 2},
 		"kill-rule": {"terminate", 1},
+		"deny-rule": {"block", 3},
 	}
 	for _, d := range got.MonitorLog.Detections {
 		w, ok := want[d.RuleID]

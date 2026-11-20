@@ -37,6 +37,7 @@ type agentStartOptions struct {
 	ShutdownGrace             time.Duration
 	JobTTL                    time.Duration
 	EnableHTTPRequest         bool
+	EnableNetworkBlock        bool
 }
 
 func runAgentSubcommand(args []string) {
@@ -65,6 +66,7 @@ func runAgentStart(args []string) {
 	var shutdownGrace time.Duration
 	var jobTTL time.Duration
 	var enableHTTPRequest bool
+	var enableNetworkBlock bool
 	socketPath = defaultSocketPath
 	githubK8sRunnerSocketPath = os.Getenv("CICD_SENSOR_GITHUB_K8S_RUNNER_SOCKET")
 	idTokenRequestURLHosts = os.Getenv("CICD_SENSOR_ID_TOKEN_REQUEST_URL_HOSTS")
@@ -92,6 +94,8 @@ func runAgentStart(args []string) {
 		fmt.Fprintf(fs.Output(), "  --job-ttl DURATION\n        Job age threshold after which the job is expired and forcibly finalized.\n        Expiry is checked about once per minute, so finalization may happen up to\n        about one minute after the TTL is reached. (default %s)\n", formatDuration(job.DefaultTTL))
 		fmt.Fprintln(fs.Output(), "  --enable-http-request=BOOL")
 		fmt.Fprintln(fs.Output(), "        Enable HTTP request capture. (default false)")
+		fmt.Fprintln(fs.Output(), "  --enable-network-block=BOOL")
+		fmt.Fprintln(fs.Output(), "        Allow rules with action block to refuse network connects. (default false)")
 	}
 	fs.StringVar(&socketPath, "socket", socketPath, "Agent control socket path.")
 	fs.StringVar(&githubK8sRunnerSocketPath, "github-k8s-runner-socket", githubK8sRunnerSocketPath, "GitHub Kubernetes runner socket path.")
@@ -103,6 +107,7 @@ func runAgentStart(args []string) {
 	fs.DurationVar(&shutdownGrace, "shutdown-grace", 8*time.Second, "Best-effort drain window used after SIGTERM. Must end before the supervisor's kill timeout (for example systemd TimeoutStopSec), or the drain is cut off mid-flight.")
 	fs.DurationVar(&jobTTL, "job-ttl", job.DefaultTTL, "Job age threshold after which the job is expired and forcibly finalized; expiry is checked about once per minute.")
 	fs.BoolVar(&enableHTTPRequest, "enable-http-request", false, "Enable HTTP request capture.")
+	fs.BoolVar(&enableNetworkBlock, "enable-network-block", false, "Allow rules with action block to refuse network connects.")
 	if err := fs.Parse(args[1:]); err != nil {
 		os.Exit(2)
 	}
@@ -127,6 +132,7 @@ func runAgentStart(args []string) {
 		ShutdownGrace:             shutdownGrace,
 		JobTTL:                    jobTTL,
 		EnableHTTPRequest:         enableHTTPRequest,
+		EnableNetworkBlock:        enableNetworkBlock,
 	}
 	if err := validateAgentStartRequiredOptions(opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -181,6 +187,7 @@ func runAgentStart(args []string) {
 	a.SetShutdownGrace(opts.ShutdownGrace)
 	a.SetJobTTL(opts.JobTTL)
 	a.SetHTTPRequestEnabled(opts.EnableHTTPRequest)
+	a.SetNetworkBlockEnabled(opts.EnableNetworkBlock)
 	a.SetGitHubK8sRunnerSocketPath(opts.GitHubK8sRunnerSocketPath)
 	a.SetIDTokenRequestURLHosts(opts.IDTokenRequestURLHosts)
 	if err := a.Run(ctx); err != nil {

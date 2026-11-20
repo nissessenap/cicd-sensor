@@ -184,6 +184,35 @@ func TestRunReportStepSummary_OmitsCollectOnlyRules(t *testing.T) {
 	}
 }
 
+func TestRunReportStepSummary_ListsBlockRules(t *testing.T) {
+	t.Parallel()
+
+	sample := sampleProjectResult()
+	sample.Hits = []resultdoc.HitRecord{
+		{RuleID: "deny-rule", Action: "block", HitCount: 4, AlertEvents: []resultdoc.AlertEvent{
+			{Process: &resultdoc.ProcessSummary{ExecPath: "/usr/bin/curl"}},
+		}},
+	}
+	sample.DomainObservations = nil
+	sample.NetworkConnections = nil
+	body, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatalf("marshal sample: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := runReportStepSummary(context.Background(), nil, bytes.NewReader(body), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runReportStepSummary: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if got := stdout.String(); !strings.Contains(got, "<code>deny-rule</code>") {
+		t.Fatalf("block rule must appear in top matches:\n%s", got)
+	}
+}
+
 func TestRunReportStepSummary_ResultHeaders(t *testing.T) {
 	t.Parallel()
 
