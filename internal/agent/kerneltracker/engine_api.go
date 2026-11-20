@@ -6,6 +6,7 @@ import (
 
 	"github.com/cicd-sensor/cicd-sensor/internal/jobcontext"
 	"github.com/cicd-sensor/cicd-sensor/internal/jobevent"
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 // JobForCgroupResult is the lookup outcome returned by KernelTracker.JobForCgroup.
@@ -85,6 +86,26 @@ func (engine *KernelTracker) RemoveJob(ctx context.Context, jobID jobcontext.Job
 
 	select {
 	case engine.inputCh <- commandRemoveJob{JobID: jobID, Reply: replyCh}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case err := <-replyCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// SetJobNetBlockProgram makes the kernel refuse connects that program
+// matches, for every cgroup of the Job including ones created later. It
+// replaces any program installed earlier for the Job.
+func (engine *KernelTracker) SetJobNetBlockProgram(ctx context.Context, jobID jobcontext.JobIdentity, program netblock.Program) error {
+	replyCh := make(chan error, 1)
+
+	select {
+	case engine.inputCh <- commandSetNetBlockProgram{JobID: jobID, Program: program, Reply: replyCh}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}

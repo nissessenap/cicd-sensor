@@ -30,7 +30,7 @@ func TestLinuxKernelSampleDNSUDPEmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("put tracked cgroup: %v", err)
 	}
 	defer func() {
@@ -101,7 +101,7 @@ func TestLinuxKernelSampleDNSTCPEmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("put tracked cgroup: %v", err)
 	}
 	defer func() {
@@ -229,7 +229,7 @@ func TestLinuxKernelSampleDNSSystemdResolvedEmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		t.Fatalf("put tracked cgroup: %v", err)
 	}
 	defer func() {

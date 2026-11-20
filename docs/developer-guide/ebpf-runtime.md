@@ -74,6 +74,8 @@ The eBPF Runtime handles both rule-facing events and internal tracking samples.
 
 `cgroup/connect4/6` is not attached per tracked cgroup. The agent attaches once to the cgroup v2 root detected at startup, and the program uses `tracked_cgroups` lookup to handle only target jobs.
 
+With `--enable-network-block=true`, the same two programs also enforce rules with `action: block`. A block rule's condition is restricted to the connect destination, so userspace can lower it to a small postfix program that the hook evaluates before the connection exists; a match makes `connect()` fail with `EPERM` and the `network_connect` sample is still emitted, marked as blocked. CEL remains the definition of the rule: the kernel program is an equivalent projection, and rule evaluation in userspace still decides which rule and which scope the hit belongs to. The verdict does not depend on ring buffer space. Unconnected UDP (`sendto` without `connect`) does not reach these hooks and is neither observed nor blocked.
+
 `unix_stream_connect` / `unix_dgram_connect` observe AF_UNIX connects at the proto_ops entry points, so connects denied earlier by an LSM (AppArmor, SELinux, BPF LSM) are not observable.
 
 When `--enable-http-request=true`, the `http_request` hook detects cleartext
@@ -110,11 +112,14 @@ those remain in the KernelTracker/KernelIO userspace owners.
 
 | Map | Key | Role |
 | --- | --- | --- |
-| `tracked_cgroups` | cgroup ID | Lets BPF hooks decide on the fast path whether the current cgroup is in scope |
-| `staging_map` | Docker cgroup basename | Lets the `cgroup_mkdir` hook detect cgroup creation staged by the Docker proxy |
+| `tracked_cgroups` | cgroup ID | Lets BPF hooks decide on the fast path whether the current cgroup is in scope. The value is the Job's network block slot (0 = none); the cgroup hooks copy it to child, migrated, and staged cgroups in the same update that starts tracking them |
+| `staging_map` | Docker cgroup basename | Lets the `cgroup_mkdir` hook detect cgroup creation staged by the Docker proxy. The value carries the network block slot for the promoted cgroup |
+| `net_block_active` | network block slot | Selects which of the slot's two program buffers the connect hooks evaluate (0 = no program). Userspace writes the idle buffer, then flips this word, so every cgroup of the Job switches at once |
+| `net_block_programs` | slot and buffer | The Job's block rules as a bounded postfix program over the connect destination |
 | `http_uprobe_discovery_cache` | device, inode, ctime | Suppresses mapping notifications for files already queued, classified, or attached; eviction only causes reclassification |
 
 `staging_map` does not contain JobIdentity. The kernel side only matches the basename; userspace mirror state knows which job it belongs to.
+The network block slot is an opaque integer for the same reason: which Job owns a slot, and which rule and scope a block belongs to, is known only in userspace.
 
 ### KernelTracker userspace state
 
@@ -125,6 +130,7 @@ those remain in the KernelTracker/KernelIO userspace owners.
 | `stagingByBasename` | Maps Docker cgroup basename to JobIdentity and promotes `staging_map` hits to jobs |
 | `stagingByJob` | Cleans up staging entries for a job when the job ends |
 | `processesByJob` / `processNode` | Holds process fat nodes and attaches `exec_path`, `argv`, and `ancestors` to EventRecord |
+| `netBlock` | Assigns each Job a network block slot for its lifetime and remembers which program buffer is active |
 
 ### EventRecord delivery pressure
 

@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	eventsMapName = "events"
+	eventsMapName           = "events"
+	netBlockActiveMapName   = "net_block_active"
+	netBlockProgramsMapName = "net_block_programs"
 	// Keep at least 8 MiB for small CI/CD runner nodes.
 	minEventsRingbufMaxEntries = 8 << 20
 	// Add 4 MiB per CPU so larger runner nodes get more ingress capacity.
@@ -18,7 +20,7 @@ const (
 )
 
 // configureBPFProgramSpec applies userspace-owned map settings before load.
-func configureBPFProgramSpec(spec *ebpf.CollectionSpec) error {
+func configureBPFProgramSpec(spec *ebpf.CollectionSpec, netBlockSlots uint32) error {
 	eventsMap := spec.Maps[eventsMapName]
 	if eventsMap == nil {
 		return fmt.Errorf("bpf map %q not found", eventsMapName)
@@ -34,6 +36,19 @@ func configureBPFProgramSpec(spec *ebpf.CollectionSpec) error {
 		return fmt.Errorf("bpf map %q not found", StagingMapName)
 	}
 	stagingMap.MaxEntries = StagingMaxEntries
+
+	netBlockActive := spec.Maps[netBlockActiveMapName]
+	if netBlockActive == nil {
+		return fmt.Errorf("bpf map %q not found", netBlockActiveMapName)
+	}
+	netBlockPrograms := spec.Maps[netBlockProgramsMapName]
+	if netBlockPrograms == nil {
+		return fmt.Errorf("bpf map %q not found", netBlockProgramsMapName)
+	}
+	// Slot 0 means "no slot", so usable slots are 1..netBlockSlots, and each
+	// slot owns two program buffers at index slot*2 and slot*2+1.
+	netBlockActive.MaxEntries = netBlockSlots + 1
+	netBlockPrograms.MaxEntries = (netBlockSlots + 1) * 2
 
 	return nil
 }

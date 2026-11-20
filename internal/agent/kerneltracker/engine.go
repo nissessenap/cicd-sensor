@@ -30,6 +30,8 @@ type KernelTracker struct {
 // Config contains optional kernel runtime features owned by KernelTracker.
 type Config struct {
 	EnableHTTPRequest bool
+	// EnableNetworkBlock lets Jobs install network block programs.
+	EnableNetworkBlock bool
 }
 
 // New builds the production KernelTracker and its KernelIO adapter.
@@ -52,6 +54,9 @@ func NewWithConfig(logger *slog.Logger, jobEndNotifier JobEndNotifier, trackerCo
 			CgroupV2RootPath:  cgroupRoot,
 			EnableHTTPRequest: trackerConfig.EnableHTTPRequest,
 		}
+		if trackerConfig.EnableNetworkBlock {
+			config.NetBlockSlots = defaultNetBlockSlots
+		}
 	}
 	kernelIO, err := kernelio.New(logger, config)
 	if err != nil {
@@ -69,6 +74,9 @@ func NewWithConfig(logger *slog.Logger, jobEndNotifier JobEndNotifier, trackerCo
 	}
 	engine.jobTracking = newJobTrackingState()
 	engine.jobTracking.logger = engine.logger
+	if config.NetBlockSlots > 0 {
+		engine.jobTracking.netBlock = newNetBlockSlots(config.NetBlockSlots)
+	}
 	return engine, nil
 }
 

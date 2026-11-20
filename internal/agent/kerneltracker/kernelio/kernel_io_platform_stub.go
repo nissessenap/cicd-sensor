@@ -5,6 +5,8 @@ package kernelio
 import (
 	"context"
 	"log/slog"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/netblock"
 )
 
 var _ = configureBPFProgramSpec
@@ -17,9 +19,15 @@ func New(logger *slog.Logger, config Config) (KernelIO, error) {
 
 type StubKernelIO struct{}
 
-func (kernelIO *StubKernelIO) PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64) error {
-	_ = ctx
-	_ = cgroupID
+func (kernelIO *StubKernelIO) PutCgroupIDInTrackedCgroupsMap(context.Context, uint64, uint32) error {
+	return ErrNotSupported
+}
+
+func (kernelIO *StubKernelIO) InstallNetBlockProgram(context.Context, uint32, uint32, netblock.Program) error {
+	return ErrNotSupported
+}
+
+func (kernelIO *StubKernelIO) ClearNetBlockSlot(context.Context, uint32) error {
 	return ErrNotSupported
 }
 
@@ -29,9 +37,7 @@ func (kernelIO *StubKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(ctx context.C
 	return ErrNotSupported
 }
 
-func (kernelIO *StubKernelIO) PutCgroupBasenameInStagingMap(ctx context.Context, basename string) error {
-	_ = ctx
-	_ = basename
+func (kernelIO *StubKernelIO) PutCgroupBasenameInStagingMap(context.Context, string, uint32) error {
 	return ErrNotSupported
 }
 

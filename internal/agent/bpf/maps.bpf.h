@@ -87,11 +87,40 @@ struct {
     __type(value, __u32);
 } http_uprobe_stages SEC(".maps");
 
-// The hook only checks staging_map lookup hits; this value is reserved for a
-// future kernel path that may surface JobIdentity without userspace lookup.
+// Carried into tracked_cgroups when cgroup_mkdir promotes the staged basename,
+// so a staged container cgroup is enforced from its first process.
 struct staging_value {
-    __u64 job_id_lo;
-    __u64 job_id_hi;
+    __u32 net_block_slot;
+    __u32 _pad;
+    __u64 _reserved;
+};
+
+// Bounds the verifier-visible evaluation loop. Must match netblock.MaxInsns.
+#define NET_BLOCK_MAX_INSNS 64
+
+// A connect destination, or a value / mask over one.
+struct net_block_tuple {
+    __u32 addr[4]; // network byte order; IPv4 as ::ffff:a.b.c.d
+    __u16 port;    // host byte order
+    __u8 protocol;
+    __u8 _pad;
+};
+
+// Must match netblock.Insn: pop `pop` stack entries, push
+// truth[match << 2 | second << 1 | top].
+struct net_block_insn {
+    struct net_block_tuple value;
+    struct net_block_tuple mask;
+    __u8 truth;
+    __u8 pop;
+    __u16 _pad;
+};
+
+// One Job's block rules as a postfix boolean expression. Userspace validates
+// the stack discipline; the kernel only bounds the loop.
+struct net_block_program {
+    __u32 insn_count;
+    struct net_block_insn insns[NET_BLOCK_MAX_INSNS];
 };
 
 const volatile struct staging_value *unused_staging_value;
@@ -103,12 +132,35 @@ struct {
     __uint(max_entries, 1 << 20);
 } events SEC(".maps");
 
+// Value is the Job's network block slot, 0 when the Job has none. It rides on
+// the tracking entry so child cgroups inherit enforcement in the same map
+// update that starts tracking them.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, __u64);
-    __type(value, __u8);
+    __type(value, __u32);
 } tracked_cgroups SEC(".maps");
+
+// slot -> active program buffer: 0 = no program, 1 or 2 = buffer
+// net_block_programs[slot * 2 + value - 1]. Userspace writes the idle buffer
+// and then flips this word, so a hook never evaluates a half-written program
+// and every cgroup of the Job switches at once.
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    // Userspace sets the real cap on CollectionSpec before load.
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+} net_block_active SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    // Userspace sets the real cap on CollectionSpec before load.
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __type(value, struct net_block_program);
+} net_block_programs SEC(".maps");
 
 // Per-CPU path workspace. FILE_PATH_LEN does not fit on the 512B BPF stack.
 // Call sites still NULL-check lookup results because the verifier requires it.

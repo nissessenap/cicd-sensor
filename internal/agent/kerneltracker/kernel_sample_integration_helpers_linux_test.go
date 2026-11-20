@@ -51,7 +51,7 @@ func startTrackedKernelIO(t *testing.T) (uint64, *KernelTracker, func()) {
 		kernelIO.Close()
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, 0); err != nil {
 		cancel()
 		kernelIO.Close()
 		t.Fatalf("put tracked cgroup: %v", err)

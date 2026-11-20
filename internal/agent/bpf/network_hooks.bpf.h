@@ -19,8 +19,66 @@ static __always_inline __u16 sockaddr_user_port(struct bpf_sock_addr *ctx)
     return bpf_ntohs((__be16)port);
 }
 
+// Hides a value's range from clang so it cannot turn the arithmetic below
+// back into compares, which the BPF backend lowers to branches.
+#define net_block_opaque(var) asm volatile("" : "+r"(var))
+
+// Evaluates the Job's block program against dst. Must stay step for step
+// equivalent to netblock.Program.Eval, the Go reference.
+//
+// The loop body is branch-free on purpose. The verdict feeds the program's
+// return value, so the verifier tracks the stack word precisely and cannot
+// prune states that differ in it: one data-dependent branch per instruction
+// doubles the paths per iteration and exhausts the 1M instruction budget.
+// The stack is a 64-bit word instead of memory for the same reason;
+// NET_BLOCK_MAX_INSNS pushes cannot overflow it.
+static __always_inline bool net_block_matches(__u32 slot, const struct net_block_tuple *dst)
+{
+    if (slot == 0)
+        return false;
+
+    __u32 *active = bpf_map_lookup_elem(&net_block_active, &slot);
+    if (!active || *active == 0)
+        return false;
+
+    __u32 index = slot * 2 + *active - 1;
+    struct net_block_program *program = bpf_map_lookup_elem(&net_block_programs, &index);
+    if (!program)
+        return false;
+
+    __u32 insn_count = program->insn_count;
+    __u64 stack = 0;
+
+    for (__u32 i = 0; i < NET_BLOCK_MAX_INSNS; i++) {
+        if (i >= insn_count)
+            break;
+
+        const struct net_block_insn *insn = &program->insns[i];
+        __u64 diff = 0;
+
+        diff |= (dst->addr[0] ^ insn->value.addr[0]) & insn->mask.addr[0];
+        diff |= (dst->addr[1] ^ insn->value.addr[1]) & insn->mask.addr[1];
+        diff |= (dst->addr[2] ^ insn->value.addr[2]) & insn->mask.addr[2];
+        diff |= (dst->addr[3] ^ insn->value.addr[3]) & insn->mask.addr[3];
+        diff |= (dst->port ^ insn->value.port) & insn->mask.port;
+        diff |= (dst->protocol ^ insn->value.protocol) & insn->mask.protocol;
+        net_block_opaque(diff);
+
+        // diff fits in 32 bits, so the subtraction borrows into bit 63 only
+        // when every masked field was equal.
+        __u64 match = (diff - 1) >> 63;
+        __u64 truth = insn->truth;
+        __u64 pop = insn->pop & 3;
+        __u64 result = (truth >> ((stack & 3) | (match << 2))) & 1;
+
+        stack = ((stack >> pop) << 1) | result;
+    }
+    return stack & 1;
+}
+
 // Attached once to the detected cgroup v2 root. tracked_cgroups keeps this
-// observation-only and per-Job without per-Job attach churn; return 1 allows.
+// per-Job without per-Job attach churn; return 1 allows, return 0 makes
+// connect() fail with EPERM.
 SEC("cgroup/connect4")
 int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
 {
@@ -28,7 +86,8 @@ int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
     __u8 protocol = ctx->protocol;
     __u32 user_ip4 = ctx->user_ip4;
 
-    if (!cgroup_is_tracked(cgroup_id))
+    __u32 *net_block_slot = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
+    if (!net_block_slot)
         return 1;
 
     if (!is_tcp_or_udp(protocol))
@@ -40,11 +99,20 @@ int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
     if (remote_port == 0)
         return 1;
 
-    RESERVE_SAMPLE(sample, struct net_v4_sample, return 1);
+    struct net_block_tuple dst = {
+        .addr = { 0, 0, bpf_htonl(0x0000ffff), user_ip4 },
+        .port = remote_port,
+        .protocol = protocol,
+    };
+    int verdict = net_block_matches(*net_block_slot, &dst) ? 0 : 1;
+
+    // Enforcement must not depend on ringbuf space: a full buffer drops the
+    // sample but still returns the verdict.
+    RESERVE_SAMPLE(sample, struct net_v4_sample, return verdict);
 
     sample->kind = SAMPLE_KIND_NETWORK_CONNECT_V4;
     sample->protocol = protocol;
-    sample->blocked = 0;
+    sample->blocked = verdict ? 0 : 1;
     sample->_pad0 = 0;
     SET_TASK_HEADER(sample, cgroup_id);
     sample->_pad1 = 0;
@@ -57,7 +125,7 @@ int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
     sample->_pad2 = 0;
 
     bpf_ringbuf_submit(sample, 0);
-    return 1;
+    return verdict;
 }
 
 SEC("cgroup/connect6")
@@ -67,7 +135,8 @@ int handle_cgroup_connect6(struct bpf_sock_addr *ctx)
     __u8 protocol = ctx->protocol;
     __u32 user_ip6[4];
 
-    if (!cgroup_is_tracked(cgroup_id))
+    __u32 *net_block_slot = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
+    if (!net_block_slot)
         return 1;
 
     if (!is_tcp_or_udp(protocol))
@@ -84,11 +153,20 @@ int handle_cgroup_connect6(struct bpf_sock_addr *ctx)
     user_ip6[2] = ctx->user_ip6[2];
     user_ip6[3] = ctx->user_ip6[3];
 
-    RESERVE_SAMPLE(sample, struct net_v6_sample, return 1);
+    struct net_block_tuple dst = {
+        .addr = { user_ip6[0], user_ip6[1], user_ip6[2], user_ip6[3] },
+        .port = remote_port,
+        .protocol = protocol,
+    };
+    int verdict = net_block_matches(*net_block_slot, &dst) ? 0 : 1;
+
+    // Enforcement must not depend on ringbuf space: a full buffer drops the
+    // sample but still returns the verdict.
+    RESERVE_SAMPLE(sample, struct net_v6_sample, return verdict);
 
     sample->kind = SAMPLE_KIND_NETWORK_CONNECT_V6;
     sample->protocol = protocol;
-    sample->blocked = 0;
+    sample->blocked = verdict ? 0 : 1;
     sample->_pad0 = 0;
     SET_TASK_HEADER(sample, cgroup_id);
     sample->_pad1 = 0;
@@ -100,7 +178,7 @@ int handle_cgroup_connect6(struct bpf_sock_addr *ctx)
     sample->_pad2 = 0;
 
     bpf_ringbuf_submit(sample, 0);
-    return 1;
+    return verdict;
 }
 
 // Submits the AF_UNIX connect sample shared by the unix_{stream,dgram}_connect

@@ -20,6 +20,8 @@ type jobTrackingState struct {
 	stagingByBasename     map[string]jobcontext.JobIdentity
 	stagingByJob          map[jobcontext.JobIdentity]map[string]struct{}
 	processesByJob        map[jobcontext.JobIdentity]*jobProcessState
+	// netBlock is nil unless network blocking is enabled.
+	netBlock *netBlockSlots
 }
 
 func newJobTrackingState() *jobTrackingState {
@@ -45,6 +47,8 @@ func (s *jobTrackingState) registerJob(jobID jobcontext.JobIdentity, eventRecord
 	if s.fileOpenDedupByJob[jobID] == nil {
 		s.fileOpenDedupByJob[jobID] = newFileOpenDedupState(defaultFileOpenDedupKeyLimit)
 	}
+
+	s.netBlock.allocate(jobID)
 
 	channel := s.jobEventChannels[jobID]
 	if channel == nil {
@@ -91,6 +95,7 @@ func (s *jobTrackingState) removeJob(jobID jobcontext.JobIdentity) chan jobevent
 	s.removeCgroupAndStaging(jobID)
 	delete(s.jobs, jobID)
 	delete(s.processesByJob, jobID)
+	s.netBlock.release(jobID)
 
 	return channel
 }

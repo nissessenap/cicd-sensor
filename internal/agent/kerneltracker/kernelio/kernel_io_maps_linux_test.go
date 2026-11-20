@@ -22,7 +22,7 @@ func TestStagingOperationsValidateBasename(t *testing.T) {
 		{
 			name: "put staging oversized basename",
 			run: func() error {
-				return kernelIO.PutCgroupBasenameInStagingMap(context.Background(), oversized)
+				return kernelIO.PutCgroupBasenameInStagingMap(context.Background(), oversized, 0)
 			},
 		},
 		{
@@ -94,28 +94,5 @@ func TestFixedStagingMapKeyRejectsPathLikeBasename(t *testing.T) {
 
 	if _, err := fixedStagingMapKey([]byte("/kubepods.slice/docker-abc.scope")); err == nil {
 		t.Fatalf("expected path-like staging key error")
-	}
-}
-
-func TestFixedStagingMapValueDefaultsToZeroPayload(t *testing.T) {
-	t.Parallel()
-
-	value, err := fixedStagingMapValue(nil)
-	if err != nil {
-		t.Fatalf("fixedStagingMapValue returned error: %v", err)
-	}
-	if len(value) != StagingValueLen {
-		t.Fatalf("fixed value length: got %d, want %d", len(value), StagingValueLen)
-	}
-	if !bytes.Equal(value, make([]byte, StagingValueLen)) {
-		t.Fatalf("fixed value is not zero payload")
-	}
-}
-
-func TestFixedStagingMapValueRejectsOversizedPayload(t *testing.T) {
-	t.Parallel()
-
-	if _, err := fixedStagingMapValue(make([]byte, StagingValueLen+1)); err == nil {
-		t.Fatalf("expected oversized staging value error")
 	}
 }
