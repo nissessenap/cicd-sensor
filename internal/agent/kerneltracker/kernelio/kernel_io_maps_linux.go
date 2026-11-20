@@ -8,13 +8,12 @@ import (
 	"errors"
 	"fmt"
 
-	bpfprog "github.com/cicd-sensor/cicd-sensor/internal/agent/bpf/generated"
 	"github.com/cilium/ebpf"
 )
 
-func (kernelIO *LinuxKernelIO) PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64, netBlockSlot uint32) error {
+func (kernelIO *LinuxKernelIO) PutCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64, netBlockToken uint32) error {
 	_ = ctx
-	if err := kernelIO.objs.TrackedCgroups.Update(cgroupID, netBlockSlot, ebpf.UpdateAny); err != nil {
+	if err := kernelIO.objs.TrackedCgroups.Update(cgroupID, netBlockToken, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("put cgroup id %d in tracked_cgroups map: %w", cgroupID, err)
 	}
 	return nil
@@ -30,14 +29,13 @@ func (kernelIO *LinuxKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(ctx context.
 	return nil
 }
 
-func (kernelIO *LinuxKernelIO) PutCgroupBasenameInStagingMap(ctx context.Context, basename string, netBlockSlot uint32) error {
+func (kernelIO *LinuxKernelIO) PutCgroupBasenameInStagingMap(ctx context.Context, basename string, netBlockToken uint32) error {
 	_ = ctx
 	key, err := fixedStagingMapKey([]byte(basename))
 	if err != nil {
 		return err
 	}
-	value := bpfprog.BPFProgramStagingValue{NetBlockSlot: netBlockSlot}
-	if err := kernelIO.objs.StagingMap.Update(key, &value, ebpf.UpdateAny); err != nil {
+	if err := kernelIO.objs.StagingMap.Update(key, netBlockToken, ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("put cgroup basename %q in staging_map: %w", basename, err)
 	}
 	return nil
@@ -59,22 +57,22 @@ func (kernelIO *LinuxKernelIO) DeleteCgroupBasenamesFromStagingMap(ctx context.C
 }
 
 func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupIDInTrackedCgroupsMap(ctx context.Context, cgroupID uint64) (bool, error) {
-	_, tracked, err := kernelIO.TestOnlyLookupNetBlockSlot(ctx, cgroupID)
+	_, tracked, err := kernelIO.TestOnlyLookupNetBlockToken(ctx, cgroupID)
 	return tracked, err
 }
 
-// TestOnlyLookupNetBlockSlot returns the network block slot stored with a
+// TestOnlyLookupNetBlockToken returns the network block token stored with a
 // tracked cgroup, and whether the cgroup is tracked at all.
-func (kernelIO *LinuxKernelIO) TestOnlyLookupNetBlockSlot(ctx context.Context, cgroupID uint64) (slot uint32, tracked bool, err error) {
+func (kernelIO *LinuxKernelIO) TestOnlyLookupNetBlockToken(ctx context.Context, cgroupID uint64) (token uint32, tracked bool, err error) {
 	_ = ctx
-	err = kernelIO.objs.TrackedCgroups.Lookup(cgroupID, &slot)
+	err = kernelIO.objs.TrackedCgroups.Lookup(cgroupID, &token)
 	if errors.Is(err, ebpf.ErrKeyNotExist) {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, fmt.Errorf("lookup cgroup id %d in tracked_cgroups map: %w", cgroupID, err)
 	}
-	return slot, true, nil
+	return token, true, nil
 }
 
 func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupBasenameInStagingMap(ctx context.Context, basename string) (bool, error) {
@@ -83,7 +81,7 @@ func (kernelIO *LinuxKernelIO) TestOnlyLookupCgroupBasenameInStagingMap(ctx cont
 	if err != nil {
 		return false, err
 	}
-	var value bpfprog.BPFProgramStagingValue
+	var value uint32
 	err = kernelIO.objs.StagingMap.Lookup(key, &value)
 	if errors.Is(err, ebpf.ErrKeyNotExist) {
 		return false, nil

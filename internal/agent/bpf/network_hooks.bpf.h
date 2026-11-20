@@ -32,17 +32,12 @@ static __always_inline __u16 sockaddr_user_port(struct bpf_sock_addr *ctx)
 // doubles the paths per iteration and exhausts the 1M instruction budget.
 // The stack is a 64-bit word instead of memory for the same reason;
 // NET_BLOCK_MAX_INSNS pushes cannot overflow it.
-static __always_inline bool net_block_matches(__u32 slot, const struct net_block_tuple *dst)
+static __always_inline bool net_block_matches(__u32 token, const struct net_block_tuple *dst)
 {
-    if (slot == 0)
+    if (token == 0)
         return false;
 
-    __u32 *active = bpf_map_lookup_elem(&net_block_active, &slot);
-    if (!active || *active == 0)
-        return false;
-
-    __u32 index = slot * 2 + *active - 1;
-    struct net_block_program *program = bpf_map_lookup_elem(&net_block_programs, &index);
+    struct net_block_program *program = bpf_map_lookup_elem(&net_block_programs, &token);
     if (!program)
         return false;
 
@@ -86,8 +81,8 @@ int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
     __u8 protocol = ctx->protocol;
     __u32 user_ip4 = ctx->user_ip4;
 
-    __u32 *net_block_slot = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
-    if (!net_block_slot)
+    __u32 *net_block_token = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
+    if (!net_block_token)
         return 1;
 
     if (!is_tcp_or_udp(protocol))
@@ -104,7 +99,7 @@ int handle_cgroup_connect4(struct bpf_sock_addr *ctx)
         .port = remote_port,
         .protocol = protocol,
     };
-    int verdict = net_block_matches(*net_block_slot, &dst) ? 0 : 1;
+    int verdict = net_block_matches(*net_block_token, &dst) ? 0 : 1;
 
     // Enforcement must not depend on ringbuf space: a full buffer drops the
     // sample but still returns the verdict.
@@ -135,8 +130,8 @@ int handle_cgroup_connect6(struct bpf_sock_addr *ctx)
     __u8 protocol = ctx->protocol;
     __u32 user_ip6[4];
 
-    __u32 *net_block_slot = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
-    if (!net_block_slot)
+    __u32 *net_block_token = bpf_map_lookup_elem(&tracked_cgroups, &cgroup_id);
+    if (!net_block_token)
         return 1;
 
     if (!is_tcp_or_udp(protocol))
@@ -158,7 +153,7 @@ int handle_cgroup_connect6(struct bpf_sock_addr *ctx)
         .port = remote_port,
         .protocol = protocol,
     };
-    int verdict = net_block_matches(*net_block_slot, &dst) ? 0 : 1;
+    int verdict = net_block_matches(*net_block_token, &dst) ? 0 : 1;
 
     // Enforcement must not depend on ringbuf space: a full buffer drops the
     // sample but still returns the verdict.

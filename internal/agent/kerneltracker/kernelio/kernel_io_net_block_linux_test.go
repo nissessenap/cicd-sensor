@@ -80,35 +80,16 @@ func TestEncodeNetBlockProgramRejectsInvalidPrograms(t *testing.T) {
 	}
 }
 
-func TestInstallNetBlockProgramRejectsInvalidTarget(t *testing.T) {
+func TestNetBlockProgramTokenZeroNeverReachesTheKernel(t *testing.T) {
 	t.Parallel()
 
-	program := netblock.Program{netblock.Match(netblock.Tuple{}, netblock.Tuple{})}
-	tests := []struct {
-		name   string
-		slot   uint32
-		buffer uint32
-	}{
-		{name: "slot zero means no slot", slot: 0, buffer: 1},
-		{name: "buffer zero means inactive", slot: 1, buffer: 0},
-		{name: "buffer beyond the two per slot", slot: 1, buffer: 3},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			kernelIO := &LinuxKernelIO{}
-			if err := kernelIO.InstallNetBlockProgram(t.Context(), tc.slot, tc.buffer, program); err == nil {
-				t.Fatal("expected an error before any map write")
-			}
-		})
-	}
-}
-
-func TestClearNetBlockSlotIgnoresJobsWithoutSlot(t *testing.T) {
-	t.Parallel()
-
+	// A zero LinuxKernelIO has no maps, so reaching one would panic.
 	kernelIO := &LinuxKernelIO{}
-	if err := kernelIO.ClearNetBlockSlot(t.Context(), 0); err != nil {
-		t.Fatalf("ClearNetBlockSlot(0) = %v, want nil", err)
+	program := netblock.Program{netblock.Match(netblock.Tuple{}, netblock.Tuple{})}
+	if err := kernelIO.InstallNetBlockProgram(t.Context(), 0, program); err == nil {
+		t.Fatal("InstallNetBlockProgram(0) = nil, want an error")
+	}
+	if err := kernelIO.DeleteNetBlockProgram(t.Context(), 0); err != nil {
+		t.Fatalf("DeleteNetBlockProgram(0) = %v, want nil", err)
 	}
 }

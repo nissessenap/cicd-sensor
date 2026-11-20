@@ -5,6 +5,7 @@ package kernelio
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	bpfprog "github.com/cicd-sensor/cicd-sensor/internal/agent/bpf/generated"
@@ -12,32 +13,28 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-func (kernelIO *LinuxKernelIO) InstallNetBlockProgram(ctx context.Context, slot uint32, buffer uint32, program netblock.Program) error {
+func (kernelIO *LinuxKernelIO) InstallNetBlockProgram(ctx context.Context, token uint32, program netblock.Program) error {
 	_ = ctx
-	if slot == 0 || (buffer != 1 && buffer != 2) {
-		return fmt.Errorf("install network block program: invalid slot %d buffer %d", slot, buffer)
+	if token == 0 {
+		return fmt.Errorf("install network block program: token 0 is reserved")
 	}
 	value, err := encodeNetBlockProgram(program)
 	if err != nil {
 		return err
 	}
-	// Order matters: hooks must only see the buffer once it is complete.
-	if err := kernelIO.objs.NetBlockPrograms.Update(slot*2+buffer-1, value, ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("put network block program for slot %d: %w", slot, err)
-	}
-	if err := kernelIO.objs.NetBlockActive.Update(slot, buffer, ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("activate network block program for slot %d: %w", slot, err)
+	if err := kernelIO.objs.NetBlockPrograms.Update(token, value, ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("put network block program for token %d: %w", token, err)
 	}
 	return nil
 }
 
-func (kernelIO *LinuxKernelIO) ClearNetBlockSlot(ctx context.Context, slot uint32) error {
+func (kernelIO *LinuxKernelIO) DeleteNetBlockProgram(ctx context.Context, token uint32) error {
 	_ = ctx
-	if slot == 0 {
+	if token == 0 {
 		return nil
 	}
-	if err := kernelIO.objs.NetBlockActive.Update(slot, uint32(0), ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("clear network block slot %d: %w", slot, err)
+	if err := kernelIO.objs.NetBlockPrograms.Delete(token); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("delete network block program for token %d: %w", token, err)
 	}
 	return nil
 }

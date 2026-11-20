@@ -54,14 +54,17 @@ func NewWithConfig(logger *slog.Logger, jobEndNotifier JobEndNotifier, trackerCo
 			CgroupV2RootPath:  cgroupRoot,
 			EnableHTTPRequest: trackerConfig.EnableHTTPRequest,
 		}
-		if trackerConfig.EnableNetworkBlock {
-			config.NetBlockSlots = defaultNetBlockSlots
-		}
 	}
 	kernelIO, err := kernelio.New(logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("new kernel io: %w", err)
 	}
+	return NewWithKernelIO(logger, jobEndNotifier, kernelIO, cgroupRoot, trackerConfig), nil
+}
+
+// NewWithKernelIO builds a KernelTracker on a caller-supplied KernelIO.
+// cgroupRoot is empty when the host has no cgroup v2 hierarchy to track.
+func NewWithKernelIO(logger *slog.Logger, jobEndNotifier JobEndNotifier, kernelIO kernelio.KernelIO, cgroupRoot string, trackerConfig Config) *KernelTracker {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -74,10 +77,10 @@ func NewWithConfig(logger *slog.Logger, jobEndNotifier JobEndNotifier, trackerCo
 	}
 	engine.jobTracking = newJobTrackingState()
 	engine.jobTracking.logger = engine.logger
-	if config.NetBlockSlots > 0 {
-		engine.jobTracking.netBlock = newNetBlockSlots(config.NetBlockSlots)
+	if cgroupRoot != "" && trackerConfig.EnableNetworkBlock {
+		engine.jobTracking.netBlock = newNetBlockTokens()
 	}
-	return engine, nil
+	return engine
 }
 
 // Close stops the KernelIO producer owned by this tracker.

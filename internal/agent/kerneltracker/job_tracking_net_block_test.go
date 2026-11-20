@@ -12,10 +12,10 @@ func netBlockTestJob(name string) jobcontext.JobIdentity {
 	return jobcontext.GitLabJobIdentity("gitlab.com", "group/project", name)
 }
 
-func netBlockTestState(slots uint32, jobs ...jobcontext.JobIdentity) *jobTrackingState {
+func netBlockTestState(enabled bool, jobs ...jobcontext.JobIdentity) *jobTrackingState {
 	state := newJobTrackingState()
-	if slots > 0 {
-		state.netBlock = newNetBlockSlots(slots)
+	if enabled {
+		state.netBlock = newNetBlockTokens()
 	}
 	for _, jobID := range jobs {
 		state.registerJob(jobID, 1)
@@ -41,97 +41,74 @@ func setNetBlockProgram(t *testing.T, state *jobTrackingState, kernelIO *recordi
 	}
 }
 
-func TestNetBlockSlots(t *testing.T) {
+func TestNetBlockTokens(t *testing.T) {
 	t.Parallel()
 
-	jobA, jobB, jobC := netBlockTestJob("a"), netBlockTestJob("b"), netBlockTestJob("c")
+	jobA, jobB := netBlockTestJob("a"), netBlockTestJob("b")
 
-	t.Run("disabled tracker hands out no slots", func(t *testing.T) {
+	t.Run("disabled tracker hands out no tokens", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(0, jobA)
-		if got := state.netBlock.slotFor(jobA); got != 0 {
-			t.Fatalf("slot = %d, want 0", got)
+		state := netBlockTestState(false, jobA)
+		if got := state.netBlock.tokenFor(jobA); got != 0 {
+			t.Fatalf("token = %d, want 0", got)
 		}
 		state.removeJob(jobA)
 	})
 
-	t.Run("each job gets a distinct non-zero slot", func(t *testing.T) {
+	t.Run("each job gets a distinct non-zero token", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobA, jobB)
-		slotA, slotB := state.netBlock.slotFor(jobA), state.netBlock.slotFor(jobB)
-		if slotA == 0 || slotB == 0 || slotA == slotB {
-			t.Fatalf("slots = %d, %d, want distinct non-zero", slotA, slotB)
+		state := netBlockTestState(true, jobA, jobB)
+		tokenA, tokenB := state.netBlock.tokenFor(jobA), state.netBlock.tokenFor(jobB)
+		if tokenA == 0 || tokenB == 0 || tokenA == tokenB {
+			t.Fatalf("tokens = %d, %d, want distinct non-zero", tokenA, tokenB)
 		}
 	})
 
-	t.Run("re-registering a job keeps its slot", func(t *testing.T) {
+	t.Run("re-registering a job keeps its token", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobA)
-		before := state.netBlock.slotFor(jobA)
+		state := netBlockTestState(true, jobA)
+		before := state.netBlock.tokenFor(jobA)
 		state.registerJob(jobA, 1)
-		if got := state.netBlock.slotFor(jobA); got != before {
-			t.Fatalf("slot after re-register = %d, want %d", got, before)
+		if got := state.netBlock.tokenFor(jobA); got != before {
+			t.Fatalf("token after re-register = %d, want %d", got, before)
 		}
 	})
 
-	t.Run("job beyond the limit is left without a slot", func(t *testing.T) {
+	t.Run("a removed job's token is never handed out again", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(2, jobA, jobB, jobC)
-		if got := state.netBlock.slotFor(jobC); got != 0 {
-			t.Fatalf("slot for job over the limit = %d, want 0", got)
-		}
-	})
-
-	t.Run("removed job frees its slot for a later job", func(t *testing.T) {
-		t.Parallel()
-		state := netBlockTestState(2, jobA, jobB)
-		freed := state.netBlock.slotFor(jobA)
+		state := netBlockTestState(true, jobA)
+		retired := state.netBlock.tokenFor(jobA)
 		state.removeJob(jobA)
-		state.registerJob(jobC, 1)
-		if got := state.netBlock.slotFor(jobC); got != freed {
-			t.Fatalf("slot for new job = %d, want freed slot %d", got, freed)
+		if got := state.netBlock.tokenFor(jobA); got != 0 {
+			t.Fatalf("token after removal = %d, want 0", got)
 		}
-	})
-
-	t.Run("a just-freed slot is not the first one reused", func(t *testing.T) {
-		t.Parallel()
-		state := netBlockTestState(4, jobA)
-		freed := state.netBlock.slotFor(jobA)
-		state.removeJob(jobA)
-		state.registerJob(jobB, 1)
-		if got := state.netBlock.slotFor(jobB); got == freed || got == 0 {
-			t.Fatalf("slot for new job = %d, want a slot other than just-freed %d", got, freed)
+		for _, jobID := range []jobcontext.JobIdentity{jobB, jobA} {
+			state.registerJob(jobID, 1)
+			if got := state.netBlock.tokenFor(jobID); got == 0 || got == retired {
+				t.Fatalf("token for a later job = %d, want non-zero and not retired token %d", got, retired)
+			}
 		}
-	})
-
-	t.Run("unknown job has no slot", func(t *testing.T) {
-		t.Parallel()
-		state := netBlockTestState(2)
-		if got := state.netBlock.slotFor(jobA); got != 0 {
-			t.Fatalf("slot = %d, want 0", got)
-		}
-		state.netBlock.release(jobA)
 	})
 }
 
-func TestBindAndStageCarryJobNetBlockSlot(t *testing.T) {
+func TestBindAndStageCarryJobNetBlockToken(t *testing.T) {
 	t.Parallel()
 
 	jobID := netBlockTestJob("bind")
 	tests := []struct {
-		name  string
-		slots uint32
+		name    string
+		enabled bool
 	}{
-		{name: "enabled: the slot rides on the tracking entry", slots: 4},
-		{name: "disabled: tracking entries carry slot zero", slots: 0},
+		{name: "enabled: the token rides on the tracking entry", enabled: true},
+		{name: "disabled: tracking entries carry token zero", enabled: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			state := netBlockTestState(tc.slots, jobID)
-			want := state.netBlock.slotFor(jobID)
-			if (want != 0) != (tc.slots != 0) {
-				t.Fatalf("slot = %d with %d slots configured", want, tc.slots)
+			state := netBlockTestState(tc.enabled, jobID)
+			want := state.netBlock.tokenFor(jobID)
+			if (want != 0) != tc.enabled {
+				t.Fatalf("token = %d with blocking enabled=%v", want, tc.enabled)
 			}
 
 			bindReply := make(chan error, 1)
@@ -146,11 +123,11 @@ func TestBindAndStageCarryJobNetBlockSlot(t *testing.T) {
 			if err := <-stageReply; err != nil {
 				t.Fatalf("stage: %v", err)
 			}
-			if len(kernelIO.putTrackedSlots) != 1 || kernelIO.putTrackedSlots[0] != want {
-				t.Fatalf("tracked_cgroups slots = %v, want [%d]", kernelIO.putTrackedSlots, want)
+			if len(kernelIO.putTrackedTokens) != 1 || kernelIO.putTrackedTokens[0] != want {
+				t.Fatalf("tracked_cgroups tokens = %v, want [%d]", kernelIO.putTrackedTokens, want)
 			}
-			if len(kernelIO.putStagingSlots) != 1 || kernelIO.putStagingSlots[0] != want {
-				t.Fatalf("staging_map slots = %v, want [%d]", kernelIO.putStagingSlots, want)
+			if len(kernelIO.putStagingTokens) != 1 || kernelIO.putStagingTokens[0] != want {
+				t.Fatalf("staging_map tokens = %v, want [%d]", kernelIO.putStagingTokens, want)
 			}
 		})
 	}
@@ -162,71 +139,45 @@ func TestSetNetBlockProgram(t *testing.T) {
 	jobID := netBlockTestJob("install")
 	installErr := errors.New("map write failed")
 
-	t.Run("first install uses buffer one and a replacement alternates", func(t *testing.T) {
+	t.Run("every install for a job writes the job's token", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobID)
-		slot := state.netBlock.slotFor(jobID)
+		state := netBlockTestState(true, netBlockTestJob("other"), jobID)
+		token := state.netBlock.tokenFor(jobID)
 		kernelIO := &recordingKernelIO{}
-		for i, wantBuffer := range []uint32{1, 2, 1} {
+		for i := range 2 {
 			if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); err != nil {
 				t.Fatalf("install %d: %v", i, err)
 			}
-			got := kernelIO.installs[i]
-			if got.slot != slot || got.buffer != wantBuffer {
-				t.Fatalf("install %d wrote slot %d buffer %d, want slot %d buffer %d", i, got.slot, got.buffer, slot, wantBuffer)
+			if got := kernelIO.installs[i].token; got != token {
+				t.Fatalf("install %d wrote token %d, want %d", i, got, token)
 			}
 		}
 	})
 
-	t.Run("failed install keeps the previous buffer active", func(t *testing.T) {
+	t.Run("kernel write failure is returned to the caller", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobID)
-		kernelIO := &recordingKernelIO{}
-		if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); err != nil {
-			t.Fatalf("first install: %v", err)
-		}
-		kernelIO.installErr = installErr
+		state := netBlockTestState(true, jobID)
+		kernelIO := &recordingKernelIO{installErr: installErr}
 		if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); !errors.Is(err, installErr) {
-			t.Fatalf("failed install error = %v, want %v", err, installErr)
-		}
-		kernelIO.installErr = nil
-		if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); err != nil {
-			t.Fatalf("retry install: %v", err)
-		}
-		if got := kernelIO.installs[len(kernelIO.installs)-1].buffer; got != 2 {
-			t.Fatalf("retry wrote buffer %d, want the still-idle buffer 2", got)
+			t.Fatalf("error = %v, want %v", err, installErr)
 		}
 	})
 
-	rejected := []struct {
-		name    string
-		slots   uint32
-		jobs    []jobcontext.JobIdentity
-		program netblock.Program
-		wantErr error
-	}{
-		{name: "blocking disabled", slots: 0, jobs: []jobcontext.JobIdentity{jobID}, program: testNetBlockProgram, wantErr: ErrNetBlockUnavailable},
-		{name: "job without a slot", slots: 1, jobs: []jobcontext.JobIdentity{netBlockTestJob("first"), jobID}, program: testNetBlockProgram, wantErr: ErrNetBlockUnavailable},
-		{name: "malformed program", slots: 4, jobs: []jobcontext.JobIdentity{jobID}, program: netblock.Program{netblock.And()}, wantErr: netblock.ErrMalformedProgram},
-		{name: "empty program would silently stop enforcing", slots: 4, jobs: []jobcontext.JobIdentity{jobID}, program: nil, wantErr: netblock.ErrMalformedProgram},
-	}
-	for _, tc := range rejected {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			state := netBlockTestState(tc.slots, tc.jobs...)
-			kernelIO := &recordingKernelIO{}
-			if err := setNetBlockProgram(t, state, kernelIO, jobID, tc.program); !errors.Is(err, tc.wantErr) {
-				t.Fatalf("error = %v, want %v", err, tc.wantErr)
-			}
-			if len(kernelIO.installs) != 0 {
-				t.Fatalf("kernel was written despite rejection: %+v", kernelIO.installs)
-			}
-		})
-	}
+	t.Run("blocking disabled", func(t *testing.T) {
+		t.Parallel()
+		state := netBlockTestState(false, jobID)
+		kernelIO := &recordingKernelIO{}
+		if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); !errors.Is(err, ErrNetBlockUnavailable) {
+			t.Fatalf("error = %v, want %v", err, ErrNetBlockUnavailable)
+		}
+		if len(kernelIO.installs) != 0 {
+			t.Fatalf("kernel was written despite rejection: %+v", kernelIO.installs)
+		}
+	})
 
 	t.Run("unregistered job", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4)
+		state := netBlockTestState(true)
 		kernelIO := &recordingKernelIO{}
 		if err := setNetBlockProgram(t, state, kernelIO, jobID, testNetBlockProgram); err == nil {
 			t.Fatal("expected an error for a job that was never registered")
@@ -237,47 +188,47 @@ func TestSetNetBlockProgram(t *testing.T) {
 	})
 }
 
-func TestRemoveJobClearsNetBlockSlot(t *testing.T) {
+func TestRemoveJobDeletesNetBlockProgram(t *testing.T) {
 	t.Parallel()
 
 	jobID := netBlockTestJob("remove")
-	clearErr := errors.New("clear failed")
+	deleteErr := errors.New("delete failed")
 
-	t.Run("slot stops enforcing and is released", func(t *testing.T) {
+	t.Run("program is deleted and the token retired", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobID)
+		state := netBlockTestState(true, jobID)
 		state.bind(jobID, 42)
-		slot := state.netBlock.slotFor(jobID)
+		token := state.netBlock.tokenFor(jobID)
 
 		reply := make(chan error, 1)
 		kernelIO := runTestEffects(t, state, handleEngineInput(state, commandRemoveJob{JobID: jobID, Reply: reply}))
 		if err := <-reply; err != nil {
 			t.Fatalf("RemoveJob: %v", err)
 		}
-		if len(kernelIO.clearedSlots) != 1 || kernelIO.clearedSlots[0] != slot {
-			t.Fatalf("cleared slots = %v, want [%d]", kernelIO.clearedSlots, slot)
+		if len(kernelIO.deletedPrograms) != 1 || kernelIO.deletedPrograms[0] != token {
+			t.Fatalf("deleted programs = %v, want [%d]", kernelIO.deletedPrograms, token)
 		}
-		if got := state.netBlock.slotFor(jobID); got != 0 {
-			t.Fatalf("slot after removal = %d, want released", got)
+		if got := state.netBlock.tokenFor(jobID); got != 0 {
+			t.Fatalf("token after removal = %d, want 0", got)
 		}
 	})
 
-	t.Run("clear failure keeps the job and its slot for a retry", func(t *testing.T) {
+	t.Run("delete failure keeps the job and its token for a retry", func(t *testing.T) {
 		t.Parallel()
-		state := netBlockTestState(4, jobID)
-		slot := state.netBlock.slotFor(jobID)
+		state := netBlockTestState(true, jobID)
+		token := state.netBlock.tokenFor(jobID)
 
 		reply := make(chan error, 1)
 		effects := handleEngineInput(state, commandRemoveJob{JobID: jobID, Reply: reply})
-		engine := newTestKernelTracker(nil, nil, &recordingKernelIO{clearErr: clearErr}, "")
+		engine := newTestKernelTracker(nil, nil, &recordingKernelIO{deleteProgramErr: deleteErr}, "")
 		engine.jobTracking = state
 		engine.runEngineEffects(t.Context(), effects)
 
-		if err := <-reply; !errors.Is(err, clearErr) {
-			t.Fatalf("RemoveJob error = %v, want %v", err, clearErr)
+		if err := <-reply; !errors.Is(err, deleteErr) {
+			t.Fatalf("RemoveJob error = %v, want %v", err, deleteErr)
 		}
-		if got := state.netBlock.slotFor(jobID); got != slot {
-			t.Fatalf("slot after failed removal = %d, want %d kept", got, slot)
+		if got := state.netBlock.tokenFor(jobID); got != token {
+			t.Fatalf("token after failed removal = %d, want %d kept", got, token)
 		}
 	})
 }

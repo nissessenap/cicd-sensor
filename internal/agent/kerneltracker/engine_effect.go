@@ -165,27 +165,25 @@ func (engine *KernelTracker) runEngineEffects(ctx context.Context, effects []eng
 				engine.jobEndNotifier.OnJobEnded(value.JobID, value.Reason)
 			}
 		case bindTrackedCgroup:
-			err := engine.kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, value.CgroupID, engine.jobTracking.netBlock.slotFor(value.JobID))
+			err := engine.kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, value.CgroupID, engine.jobTracking.netBlock.tokenFor(value.JobID))
 			if err == nil && !engine.jobTracking.bind(value.JobID, value.CgroupID) {
 				err = fmt.Errorf("cgroup %d already bound to another job", value.CgroupID)
 			}
 			value.Reply <- err
 		case stageCgroupBasename:
-			err := engine.kernelIO.PutCgroupBasenameInStagingMap(ctx, value.Basename, engine.jobTracking.netBlock.slotFor(value.JobID))
+			err := engine.kernelIO.PutCgroupBasenameInStagingMap(ctx, value.Basename, engine.jobTracking.netBlock.tokenFor(value.JobID))
 			if err == nil && !engine.jobTracking.putStaging(value.Basename, value.JobID) {
 				err = fmt.Errorf("staging basename %q already belongs to another job", value.Basename)
 			}
 			value.Reply <- err
 		case installNetBlockProgram:
-			value.Reply <- engine.installJobNetBlockProgram(ctx, value.JobID, value.Program)
+			value.Reply <- engine.kernelIO.InstallNetBlockProgram(ctx, engine.jobTracking.netBlock.tokenFor(value.JobID), value.Program)
 		case replySetNetBlockProgram:
 			value.Reply <- value.Err
 		case removeJobFromKernel:
 			err := engine.deleteJobKernelMapEntries(ctx, value.Cgroups, value.Staging)
 			if err == nil {
-				// Tracking entries are gone first, so no cgroup still points
-				// at the slot when it stops enforcing and becomes reusable.
-				err = engine.kernelIO.ClearNetBlockSlot(ctx, engine.jobTracking.netBlock.slotFor(value.JobID))
+				err = engine.kernelIO.DeleteNetBlockProgram(ctx, engine.jobTracking.netBlock.tokenFor(value.JobID))
 			}
 			if err == nil {
 				engine.logEventDeliverySummary(ctx, value.JobID)
@@ -228,22 +226,6 @@ func (engine *KernelTracker) runEngineEffects(ctx context.Context, effects []eng
 			}
 		}
 	}
-}
-
-// installJobNetBlockProgram replaces the Job's program by writing the idle
-// buffer and switching to it, so the hooks see the old or the new program
-// and never a mix.
-func (engine *KernelTracker) installJobNetBlockProgram(ctx context.Context, jobID jobcontext.JobIdentity, program netblock.Program) error {
-	state := engine.jobTracking.netBlock.byJob[jobID]
-	buffer := uint32(1)
-	if state.activeBuffer == 1 {
-		buffer = 2
-	}
-	if err := engine.kernelIO.InstallNetBlockProgram(ctx, state.slot, buffer, program); err != nil {
-		return err
-	}
-	state.activeBuffer = buffer
-	return nil
 }
 
 func cgroupIDsForPurge(cgroups []cgroupPurgeCandidate) []uint64 {

@@ -23,11 +23,11 @@ func (kernelIO *StubKernelIO) PutCgroupIDInTrackedCgroupsMap(context.Context, ui
 	return ErrNotSupported
 }
 
-func (kernelIO *StubKernelIO) InstallNetBlockProgram(context.Context, uint32, uint32, netblock.Program) error {
+func (kernelIO *StubKernelIO) InstallNetBlockProgram(context.Context, uint32, netblock.Program) error {
 	return ErrNotSupported
 }
 
-func (kernelIO *StubKernelIO) ClearNetBlockSlot(context.Context, uint32) error {
+func (kernelIO *StubKernelIO) DeleteNetBlockProgram(context.Context, uint32) error {
 	return ErrNotSupported
 }
 

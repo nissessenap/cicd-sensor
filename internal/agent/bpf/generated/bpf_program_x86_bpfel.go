@@ -307,13 +307,6 @@ type BPFProgramPathScratch struct {
 	Buf [1280]int8
 }
 
-type BPFProgramStagingValue struct {
-	_            structs.HostLayout
-	NetBlockSlot uint32
-	Pad          uint32
-	Reserved     uint64
-}
-
 type BPFProgramUnixSocketConnectSample struct {
 	_                structs.HostLayout
 	Kind             uint32
@@ -342,7 +335,6 @@ const (
 	BPFProgramMapHttpStages                            = "http_stages"
 	BPFProgramMapHttpUprobeDiscoveryCache              = "http_uprobe_discovery_cache"
 	BPFProgramMapHttpUprobeStages                      = "http_uprobe_stages"
-	BPFProgramMapNetBlockActive                        = "net_block_active"
 	BPFProgramMapNetBlockPrograms                      = "net_block_programs"
 	BPFProgramMapPathScratch                           = "path_scratch"
 	BPFProgramMapRingbufDropCount                      = "ringbuf_drop_count"
@@ -395,7 +387,6 @@ const (
 	BPFProgramVarUnusedMountSample                     = "unused_mount_sample"
 	BPFProgramVarUnusedNetV4Sample                     = "unused_net_v4_sample"
 	BPFProgramVarUnusedNetV6Sample                     = "unused_net_v6_sample"
-	BPFProgramVarUnusedStagingValue                    = "unused_staging_value"
 	BPFProgramVarUnusedUnixSocketConnectSample         = "unused_unix_socket_connect_sample"
 )
 
@@ -484,7 +475,6 @@ type BPFProgramMapSpecs struct {
 	HttpStages               *ebpf.MapSpec `ebpf:"http_stages"`
 	HttpUprobeDiscoveryCache *ebpf.MapSpec `ebpf:"http_uprobe_discovery_cache"`
 	HttpUprobeStages         *ebpf.MapSpec `ebpf:"http_uprobe_stages"`
-	NetBlockActive           *ebpf.MapSpec `ebpf:"net_block_active"`
 	NetBlockPrograms         *ebpf.MapSpec `ebpf:"net_block_programs"`
 	PathScratch              *ebpf.MapSpec `ebpf:"path_scratch"`
 	RingbufDropCount         *ebpf.MapSpec `ebpf:"ringbuf_drop_count"`
@@ -511,7 +501,6 @@ type BPFProgramVariableSpecs struct {
 	UnusedMountSample                     *ebpf.VariableSpec `ebpf:"unused_mount_sample"`
 	UnusedNetV4Sample                     *ebpf.VariableSpec `ebpf:"unused_net_v4_sample"`
 	UnusedNetV6Sample                     *ebpf.VariableSpec `ebpf:"unused_net_v6_sample"`
-	UnusedStagingValue                    *ebpf.VariableSpec `ebpf:"unused_staging_value"`
 	UnusedUnixSocketConnectSample         *ebpf.VariableSpec `ebpf:"unused_unix_socket_connect_sample"`
 }
 
@@ -540,7 +529,6 @@ type BPFProgramMaps struct {
 	HttpStages               *ebpf.Map `ebpf:"http_stages"`
 	HttpUprobeDiscoveryCache *ebpf.Map `ebpf:"http_uprobe_discovery_cache"`
 	HttpUprobeStages         *ebpf.Map `ebpf:"http_uprobe_stages"`
-	NetBlockActive           *ebpf.Map `ebpf:"net_block_active"`
 	NetBlockPrograms         *ebpf.Map `ebpf:"net_block_programs"`
 	PathScratch              *ebpf.Map `ebpf:"path_scratch"`
 	RingbufDropCount         *ebpf.Map `ebpf:"ringbuf_drop_count"`
@@ -555,7 +543,6 @@ func (m *BPFProgramMaps) Close() error {
 		m.HttpStages,
 		m.HttpUprobeDiscoveryCache,
 		m.HttpUprobeStages,
-		m.NetBlockActive,
 		m.NetBlockPrograms,
 		m.PathScratch,
 		m.RingbufDropCount,
@@ -583,7 +570,6 @@ type BPFProgramVariables struct {
 	UnusedMountSample                     *ebpf.Variable `ebpf:"unused_mount_sample"`
 	UnusedNetV4Sample                     *ebpf.Variable `ebpf:"unused_net_v4_sample"`
 	UnusedNetV6Sample                     *ebpf.Variable `ebpf:"unused_net_v6_sample"`
-	UnusedStagingValue                    *ebpf.Variable `ebpf:"unused_staging_value"`
 	UnusedUnixSocketConnectSample         *ebpf.Variable `ebpf:"unused_unix_socket_connect_sample"`
 }
 

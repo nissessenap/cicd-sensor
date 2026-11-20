@@ -27,15 +27,13 @@ import (
 // test or documentation ranges (TEST-NET, 2001:db8::/32), because the tracked
 // cgroup is the one the test runs in and may hold unrelated processes.
 
-const netBlockTestSlots = 4
-
 func newNetBlockKernelIO(t *testing.T) (*kernelio.LinuxKernelIO, string) {
 	t.Helper()
 	cgroupRoot, err := getCgroupV2Root()
 	if err != nil {
 		t.Fatalf("getCgroupV2Root: %v", err)
 	}
-	kernelIO, err := kernelio.NewLinux(nil, kernelio.Config{CgroupV2RootPath: cgroupRoot, NetBlockSlots: netBlockTestSlots})
+	kernelIO, err := kernelio.NewLinux(nil, kernelio.Config{CgroupV2RootPath: cgroupRoot})
 	if err != nil {
 		t.Fatalf("kernelio.NewLinux: %v", err)
 	}
@@ -51,7 +49,7 @@ func startNetBlockJob(t *testing.T, name string) (*KernelTracker, jobcontext.Job
 
 	ctx, cancel := context.WithCancel(context.Background())
 	engine := newTestKernelTracker(nil, nil, kernelIO, cgroupRoot)
-	engine.jobTracking.netBlock = newNetBlockSlots(netBlockTestSlots)
+	engine.jobTracking.netBlock = newNetBlockTokens()
 	done := make(chan error, 1)
 	go func() { done <- engine.Run(ctx) }()
 	t.Cleanup(func() {
@@ -205,6 +203,23 @@ func TestLinuxNetBlockRefusesMatchingConnects(t *testing.T) {
 		}
 	})
 
+	// Linux routes the wildcard address to loopback, but the hook and CEL
+	// both see the destination as written, so a rule naming 127.0.0.1 does
+	// not cover it.
+	t.Run("wildcard destination reaches the blocked listener unmatched", func(t *testing.T) {
+		wildcard := netip.AddrPortFrom(netip.IPv4Unspecified(), blocked.Port())
+		if err := connectSocket(t, unix.AF_INET, unix.SOCK_STREAM, wildcard); err != nil {
+			t.Fatalf("connect = %v, want success", err)
+		}
+		if !acceptWithin(t, blockedListener, 2*time.Second) {
+			t.Fatal("listener saw no connection for the wildcard destination")
+		}
+		event := waitForConnectEvent(t, eventCh, blocked.Port(), "tcp")
+		if remoteIP, _ := event.Payload["remote_ip"].(string); event.BlockedByKernel() || remoteIP != "0.0.0.0" {
+			t.Fatalf("event blocked=%v remote_ip=%q, want unblocked 0.0.0.0", event.BlockedByKernel(), remoteIP)
+		}
+	})
+
 	t.Run("connect to a non-matching address succeeds", func(t *testing.T) {
 		if err := connectSocket(t, unix.AF_INET, unix.SOCK_STREAM, allowed); err != nil {
 			t.Fatalf("connect = %v, want success", err)
@@ -253,6 +268,79 @@ func TestLinuxNetBlockRefusesMatchingConnects(t *testing.T) {
 	})
 }
 
+func TestLinuxNetBlockRefusesNativeIPv6Connect(t *testing.T) {
+	listener, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	blocked := listener.Addr().(*net.TCPAddr).AddrPort()
+
+	engine, jobID, eventCh := startNetBlockJob(t, "net-block-ipv6")
+	program := lowerBlockRule(t, fmt.Sprintf(`remote_ip == "::1" && remote_port == %d`, blocked.Port()))
+	if err := engine.SetJobNetBlockProgram(t.Context(), jobID, program); err != nil {
+		t.Fatalf("SetJobNetBlockProgram: %v", err)
+	}
+
+	if err := connectSocket(t, unix.AF_INET6, unix.SOCK_STREAM, blocked); !errors.Is(err, unix.EPERM) {
+		t.Fatalf("connect = %v, want EPERM", err)
+	}
+	if acceptWithin(t, listener, 300*time.Millisecond) {
+		t.Fatal("listener accepted a connection the kernel should have refused")
+	}
+	event := waitForConnectEvent(t, eventCh, blocked.Port(), "tcp")
+	if family, _ := event.Payload["family"].(string); !event.BlockedByKernel() || family != "ipv6" {
+		t.Fatalf("event blocked=%v family=%q, want blocked ipv6", event.BlockedByKernel(), family)
+	}
+}
+
+// TestLinuxNetBlockStaleTrackingEntryIsNotEnforced leaves a tracking entry
+// behind for a Job whose program is gone, as happens when the kernel tracked
+// a cgroup userspace never learned about. A later Job's program must not
+// apply to it.
+func TestLinuxNetBlockStaleTrackingEntryIsNotEnforced(t *testing.T) {
+	kernelIO, cgroupRoot := newNetBlockKernelIO(t)
+	ctx := t.Context()
+
+	listener, blocked := loopbackListener(t)
+	program := lowerBlockRule(t, fmt.Sprintf(`remote_ip == "127.0.0.1" && remote_port == %d`, blocked.Port()))
+
+	const removedJobToken, laterJobToken = 1, 2
+	cgroupID, err := lookupProcessCgroupID(int32(os.Getpid()), cgroupRoot)
+	if err != nil {
+		t.Fatalf("lookupProcessCgroupID: %v", err)
+	}
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, removedJobToken); err != nil {
+		t.Fatalf("PutCgroupIDInTrackedCgroupsMap: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = kernelIO.DeleteCgroupIDsFromTrackedCgroupsMap(context.Background(), []uint64{cgroupID})
+	})
+	if err := kernelIO.InstallNetBlockProgram(ctx, removedJobToken, program); err != nil {
+		t.Fatalf("InstallNetBlockProgram: %v", err)
+	}
+	if err := connectSocket(t, unix.AF_INET, unix.SOCK_STREAM, blocked); !errors.Is(err, unix.EPERM) {
+		t.Fatalf("connect while the job's program is installed = %v, want EPERM", err)
+	}
+
+	if err := kernelIO.DeleteNetBlockProgram(ctx, removedJobToken); err != nil {
+		t.Fatalf("DeleteNetBlockProgram: %v", err)
+	}
+	if err := kernelIO.DeleteNetBlockProgram(ctx, removedJobToken); err != nil {
+		t.Fatalf("DeleteNetBlockProgram for a token without a program = %v, want nil", err)
+	}
+	if err := kernelIO.InstallNetBlockProgram(ctx, laterJobToken, program); err != nil {
+		t.Fatalf("InstallNetBlockProgram: %v", err)
+	}
+
+	if err := connectSocket(t, unix.AF_INET, unix.SOCK_STREAM, blocked); err != nil {
+		t.Fatalf("connect from the leftover cgroup = %v, want success", err)
+	}
+	if !acceptWithin(t, listener, 2*time.Second) {
+		t.Fatal("listener saw no connection from the leftover cgroup")
+	}
+}
+
 // enterChildCgroup creates a cgroup under the test's current one and moves
 // the test process into it until the test ends.
 func enterChildCgroup(t *testing.T, cgroupRoot string) {
@@ -275,14 +363,14 @@ func enterChildCgroup(t *testing.T, cgroupRoot string) {
 	}
 }
 
-// TestLinuxNetBlockSlotIsInheritedInKernel covers the three ways a cgroup
-// becomes tracked without userspace: each must copy the Job's slot in the
+// TestLinuxNetBlockTokenIsInheritedInKernel covers the three ways a cgroup
+// becomes tracked without userspace: each must copy the Job's token in the
 // same hook that starts tracking, or the new cgroup would run unenforced.
-func TestLinuxNetBlockSlotIsInheritedInKernel(t *testing.T) {
+func TestLinuxNetBlockTokenIsInheritedInKernel(t *testing.T) {
 	kernelIO, cgroupRoot := newNetBlockKernelIO(t)
 	ctx := t.Context()
 
-	const slot = 3
+	const token = 3
 	selfPath, err := currentCgroupPath(int32(os.Getpid()))
 	if err != nil {
 		t.Fatalf("currentCgroupPath: %v", err)
@@ -305,14 +393,14 @@ func TestLinuxNetBlockSlotIsInheritedInKernel(t *testing.T) {
 		})
 		return path, id
 	}
-	requireSlot := func(t *testing.T, cgroupID uint64, want uint32) {
+	requireToken := func(t *testing.T, cgroupID uint64, want uint32) {
 		t.Helper()
-		got, tracked, err := kernelIO.TestOnlyLookupNetBlockSlot(ctx, cgroupID)
+		got, tracked, err := kernelIO.TestOnlyLookupNetBlockToken(ctx, cgroupID)
 		if err != nil {
-			t.Fatalf("TestOnlyLookupNetBlockSlot: %v", err)
+			t.Fatalf("TestOnlyLookupNetBlockToken: %v", err)
 		}
 		if !tracked || got != want {
-			t.Fatalf("cgroup tracked=%v slot=%d, want tracked with slot %d", tracked, got, want)
+			t.Fatalf("cgroup tracked=%v token=%d, want tracked with token %d", tracked, got, want)
 		}
 	}
 	unique := func(prefix string) string { return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()) }
@@ -320,30 +408,30 @@ func TestLinuxNetBlockSlotIsInheritedInKernel(t *testing.T) {
 	// The test's own cgroup stays untracked, so only the paths under test
 	// can put entries into tracked_cgroups.
 	trackedPath, trackedID := mkdirCgroup(t, selfPath, unique("cicd-sensor-net-block-tracked"))
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, trackedID, slot); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, trackedID, token); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap: %v", err)
 	}
 
 	t.Run("cgroup created under a tracked cgroup", func(t *testing.T) {
 		_, childID := mkdirCgroup(t, trackedPath, "child")
-		requireSlot(t, childID, slot)
+		requireToken(t, childID, token)
 	})
 
 	t.Run("staged cgroup basename promoted by cgroup_mkdir", func(t *testing.T) {
 		basename := unique("docker-cicd-net-block") + ".scope"
-		if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename, slot); err != nil {
+		if err := kernelIO.PutCgroupBasenameInStagingMap(ctx, basename, token); err != nil {
 			t.Fatalf("PutCgroupBasenameInStagingMap: %v", err)
 		}
 		t.Cleanup(func() {
 			_ = kernelIO.DeleteCgroupBasenamesFromStagingMap(context.Background(), []string{basename})
 		})
 		_, stagedID := mkdirCgroup(t, selfPath, basename)
-		requireSlot(t, stagedID, slot)
+		requireToken(t, stagedID, token)
 	})
 
 	t.Run("untracked cgroup a tracked process moves into", func(t *testing.T) {
 		destinationPath, destinationID := mkdirCgroup(t, selfPath, unique("cicd-sensor-net-block-destination"))
-		if _, tracked, err := kernelIO.TestOnlyLookupNetBlockSlot(ctx, destinationID); err != nil || tracked {
+		if _, tracked, err := kernelIO.TestOnlyLookupNetBlockToken(ctx, destinationID); err != nil || tracked {
 			t.Fatalf("destination tracked=%v err=%v before the move, want untracked", tracked, err)
 		}
 		t.Cleanup(func() {
@@ -354,7 +442,7 @@ func TestLinuxNetBlockSlotIsInheritedInKernel(t *testing.T) {
 				t.Fatalf("move test process into %q: %v", path, err)
 			}
 		}
-		requireSlot(t, destinationID, slot)
+		requireToken(t, destinationID, token)
 	})
 }
 
@@ -423,15 +511,15 @@ func TestLinuxNetBlockEnforcesWithoutRingbufSpace(t *testing.T) {
 	listener, blocked := loopbackListener(t)
 	program := lowerBlockRule(t, fmt.Sprintf(`remote_ip == "127.0.0.1" && remote_port == %d`, blocked.Port()))
 
-	const slot = 1
-	if err := kernelIO.InstallNetBlockProgram(ctx, slot, 1, program); err != nil {
+	const token = 1
+	if err := kernelIO.InstallNetBlockProgram(ctx, token, program); err != nil {
 		t.Fatalf("InstallNetBlockProgram: %v", err)
 	}
 	cgroupID, err := lookupProcessCgroupID(int32(os.Getpid()), cgroupRoot)
 	if err != nil {
 		t.Fatalf("lookupProcessCgroupID: %v", err)
 	}
-	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, slot); err != nil {
+	if err := kernelIO.PutCgroupIDInTrackedCgroupsMap(ctx, cgroupID, token); err != nil {
 		t.Fatalf("PutCgroupIDInTrackedCgroupsMap: %v", err)
 	}
 	t.Cleanup(func() {
@@ -513,7 +601,7 @@ func BenchmarkLinuxNetBlockConnect(b *testing.B) {
 	}
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
-			kernelIO, err := kernelio.NewLinux(nil, kernelio.Config{CgroupV2RootPath: cgroupRoot, NetBlockSlots: netBlockTestSlots})
+			kernelIO, err := kernelio.NewLinux(nil, kernelio.Config{CgroupV2RootPath: cgroupRoot})
 			if err != nil {
 				b.Fatalf("kernelio.NewLinux: %v", err)
 			}
@@ -524,7 +612,7 @@ func BenchmarkLinuxNetBlockConnect(b *testing.B) {
 				b.Fatalf("StartKernelSampleLoop: %v", err)
 			}
 			if tc.program != nil {
-				if err := kernelIO.InstallNetBlockProgram(ctx, 1, 1, tc.program); err != nil {
+				if err := kernelIO.InstallNetBlockProgram(ctx, 1, tc.program); err != nil {
 					b.Fatalf("InstallNetBlockProgram: %v", err)
 				}
 			}

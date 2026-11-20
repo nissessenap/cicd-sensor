@@ -18,11 +18,11 @@ func (noopKernelIO) PutCgroupIDInTrackedCgroupsMap(context.Context, uint64, uint
 	return nil
 }
 
-func (noopKernelIO) InstallNetBlockProgram(context.Context, uint32, uint32, netblock.Program) error {
+func (noopKernelIO) InstallNetBlockProgram(context.Context, uint32, netblock.Program) error {
 	return nil
 }
 
-func (noopKernelIO) ClearNetBlockSlot(context.Context, uint32) error {
+func (noopKernelIO) DeleteNetBlockProgram(context.Context, uint32) error {
 	return nil
 }
 
@@ -56,39 +56,38 @@ type recordingKernelIO struct {
 	deleteStagingErr error
 	closeErr         error
 	installErr       error
-	clearErr         error
+	deleteProgramErr error
 
 	startCalls    int
 	putTracked    []uint64
 	deleteTracked []uint64
 	putStaging    []string
 	deleteStaging []string
-	// putTrackedSlots and putStagingSlots are parallel to putTracked / putStaging.
-	putTrackedSlots []uint32
-	putStagingSlots []uint32
-	installs        []netBlockInstall
-	clearedSlots    []uint32
+	// putTrackedTokens and putStagingTokens are parallel to putTracked / putStaging.
+	putTrackedTokens []uint32
+	putStagingTokens []uint32
+	installs         []netBlockInstall
+	deletedPrograms  []uint32
 }
 
 type netBlockInstall struct {
-	slot    uint32
-	buffer  uint32
+	token   uint32
 	program netblock.Program
 }
 
-func (kernelIO *recordingKernelIO) InstallNetBlockProgram(_ context.Context, slot uint32, buffer uint32, program netblock.Program) error {
+func (kernelIO *recordingKernelIO) InstallNetBlockProgram(_ context.Context, token uint32, program netblock.Program) error {
 	if kernelIO.installErr != nil {
 		return kernelIO.installErr
 	}
-	kernelIO.installs = append(kernelIO.installs, netBlockInstall{slot: slot, buffer: buffer, program: program})
+	kernelIO.installs = append(kernelIO.installs, netBlockInstall{token: token, program: program})
 	return nil
 }
 
-func (kernelIO *recordingKernelIO) ClearNetBlockSlot(_ context.Context, slot uint32) error {
-	if kernelIO.clearErr != nil {
-		return kernelIO.clearErr
+func (kernelIO *recordingKernelIO) DeleteNetBlockProgram(_ context.Context, token uint32) error {
+	if kernelIO.deleteProgramErr != nil {
+		return kernelIO.deleteProgramErr
 	}
-	kernelIO.clearedSlots = append(kernelIO.clearedSlots, slot)
+	kernelIO.deletedPrograms = append(kernelIO.deletedPrograms, token)
 	return nil
 }
 
@@ -100,12 +99,12 @@ func (kernelIO *recordingKernelIO) StartKernelSampleLoop(context.Context, kernel
 	return kernelio.ErrNotSupported
 }
 
-func (kernelIO *recordingKernelIO) PutCgroupIDInTrackedCgroupsMap(_ context.Context, cgroupID uint64, netBlockSlot uint32) error {
+func (kernelIO *recordingKernelIO) PutCgroupIDInTrackedCgroupsMap(_ context.Context, cgroupID uint64, netBlockToken uint32) error {
 	if kernelIO.putTrackedErr != nil {
 		return kernelIO.putTrackedErr
 	}
 	kernelIO.putTracked = append(kernelIO.putTracked, cgroupID)
-	kernelIO.putTrackedSlots = append(kernelIO.putTrackedSlots, netBlockSlot)
+	kernelIO.putTrackedTokens = append(kernelIO.putTrackedTokens, netBlockToken)
 	return nil
 }
 
@@ -117,12 +116,12 @@ func (kernelIO *recordingKernelIO) DeleteCgroupIDsFromTrackedCgroupsMap(_ contex
 	return nil
 }
 
-func (kernelIO *recordingKernelIO) PutCgroupBasenameInStagingMap(_ context.Context, basename string, netBlockSlot uint32) error {
+func (kernelIO *recordingKernelIO) PutCgroupBasenameInStagingMap(_ context.Context, basename string, netBlockToken uint32) error {
 	if kernelIO.putStagingErr != nil {
 		return kernelIO.putStagingErr
 	}
 	kernelIO.putStaging = append(kernelIO.putStaging, basename)
-	kernelIO.putStagingSlots = append(kernelIO.putStagingSlots, netBlockSlot)
+	kernelIO.putStagingTokens = append(kernelIO.putStagingTokens, netBlockToken)
 	return nil
 }
 
