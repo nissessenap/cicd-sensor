@@ -138,13 +138,16 @@ func applyModifiers(rules []ResolvedRule, mods []RuleModifier) []ResolvedRule {
 	return out
 }
 
+// applyMonitorMode downgrades enforcing actions to detect. It runs before
+// anything is derived from the resolved rules, so a monitored block rule is
+// never installed in the kernel.
 func applyMonitorMode(rules []ResolvedRule, enabled bool) []ResolvedRule {
 	if !enabled {
 		return rules
 	}
 	out := make([]ResolvedRule, 0, len(rules))
 	for _, resolvedRule := range rules {
-		if resolvedRule.Rule.Action == RuleActionTerminate {
+		if resolvedRule.Rule.Action == RuleActionTerminate || resolvedRule.Rule.Action == RuleActionBlock {
 			resolvedRule.Rule.Action = RuleActionDetect
 		}
 		out = append(out, resolvedRule)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/cicd-sensor/cicd-sensor/internal/jobevent"
 )
 
 func ValidateRuleSet(s *RuleSet) error {
@@ -37,8 +39,12 @@ func ValidateRuleSet(s *RuleSet) error {
 		} else {
 			switch r.Action {
 			case RuleActionDetect, RuleActionTerminate, RuleActionCollect:
+			case RuleActionBlock:
+				if r.Type == "correlation" || r.EventType != jobevent.NetworkConnect {
+					errs = append(errs, fmt.Errorf("rules[%d]: action block is only valid on event_type network_connect", i))
+				}
 			default:
-				errs = append(errs, fmt.Errorf("rules[%d]: action must be detect, terminate, or collect", i))
+				errs = append(errs, fmt.Errorf("rules[%d]: action must be detect, terminate, collect, or block", i))
 			}
 		}
 		if r.MaxAlerts < 0 {
@@ -92,6 +98,10 @@ func ValidateRuleModifier(m *RuleModifier) error {
 	} else if m.OverrideAction != nil {
 		switch *m.OverrideAction {
 		case RuleActionDetect, RuleActionTerminate, RuleActionCollect:
+		case RuleActionBlock:
+			// A modifier could turn any rule into a block rule; the target's
+			// condition is not known to be destination-only here.
+			errs = append(errs, errors.New("override_action: block is not supported"))
 		default:
 			errs = append(errs, errors.New("override_action must be detect, terminate, or collect"))
 		}

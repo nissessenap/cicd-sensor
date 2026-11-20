@@ -55,15 +55,27 @@ func CompileSet(env *celengine.Env, set rule.RuleSet) []CompileError {
 			continue
 		}
 
-		if strings.TrimSpace(candidate.Exceptions) == "" {
-			continue
+		if strings.TrimSpace(candidate.Exceptions) != "" {
+			if _, err := env.Compile(canonicalRuleID.String(), candidate.EventType, candidate.Exceptions, predefinedLists); err != nil {
+				compileErrors = append(compileErrors, CompileError{
+					Identity: identity,
+					Reason:   err.Error(),
+					Source:   candidate.Exceptions,
+				})
+				continue
+			}
 		}
-		if _, err := env.Compile(canonicalRuleID.String(), candidate.EventType, candidate.Exceptions, predefinedLists); err != nil {
-			compileErrors = append(compileErrors, CompileError{
-				Identity: identity,
-				Reason:   err.Error(),
-				Source:   candidate.Exceptions,
-			})
+
+		// The agent refuses to start a scope whose block rule it cannot
+		// lower, so report that here instead of at job start.
+		if candidate.Action == rule.RuleActionBlock {
+			if _, err := env.LowerNetBlockRule(rule.ResolvedRule{CanonicalRuleID: canonicalRuleID, Rule: candidate, RulesetID: set.RulesetID}); err != nil {
+				compileErrors = append(compileErrors, CompileError{
+					Identity: identity,
+					Reason:   err.Error(),
+					Source:   candidate.Condition,
+				})
+			}
 		}
 	}
 
