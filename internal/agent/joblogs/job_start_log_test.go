@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -305,6 +307,70 @@ func TestManagerJobLogsEmitJobStartLog_FailedSendIsRetriedAtFinalize(t *testing.
 	}
 	if got := poster.count(); got != 1 {
 		t.Fatalf("delivered batches after finalize retry: got %d, want 1", got)
+	}
+}
+
+func TestManagerJobLogsEmitJobStartLog_FailedSendIsRetriedWhileTheJobRuns(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		// recover delivers the buffered record without closing the worker.
+		recover func(t *testing.T, logs *ManagerJobLogs)
+	}{
+		{
+			name:    "worker timer resends without any further call",
+			recover: func(*testing.T, *ManagerJobLogs) { time.Sleep(jobStartRetrySeconds * time.Second) },
+		},
+		{
+			name: "streaming flush resends before the timer fires",
+			recover: func(t *testing.T, logs *ManagerJobLogs) {
+				if err := logs.FlushStreamingLogs(t.Context()); err != nil {
+					t.Fatalf("flush streaming logs: %v", err)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				poster := &recordingLogBatchSender{}
+				poster.setErr(errors.New("manager unavailable"))
+				var attempts atomic.Int32
+				sendBatch := func(ctx context.Context, batch managerclient.LogBatch) error {
+					attempts.Add(1)
+					return poster.sendBatch(ctx, batch)
+				}
+				logs := newManagerJobLogsWithSender(testLogger, sendBatch,
+					jobcontext.GitHubJobIdentity("github.com", "acme/example", "123", "build", "1", "runner-1"),
+					jobcontext.ScopeTypeProject,
+					&managerv1beta1.OutputSettings{JobStart: &managerv1beta1.OutputSetting{Enabled: true}},
+				)
+
+				if err := logs.EmitJobStartLog(t.Context(), []byte(`{"n":1}`)); err != nil {
+					t.Fatalf("emit job start: %v", err)
+				}
+				synctest.Wait()
+				if attempts.Load() != 1 || poster.count() != 0 {
+					t.Fatalf("after the failed send: attempts %d, delivered %d; want 1, 0", attempts.Load(), poster.count())
+				}
+
+				poster.setErr(nil)
+				tc.recover(t, &logs)
+				synctest.Wait()
+				if got := poster.count(); got != 1 {
+					t.Fatalf("delivered batches before finalize: got %d, want 1 (a killed Agent never finalizes)", got)
+				}
+
+				if err := logs.FinalizeStreamingLogs(t.Context()); err != nil {
+					t.Fatalf("finalize: %v", err)
+				}
+				if got := poster.count(); got != 1 {
+					t.Fatalf("delivered batches after finalize: got %d, want 1 (start record must not be resent)", got)
+				}
+			})
+		})
 	}
 }
 

@@ -143,11 +143,17 @@ func (o *ManagerJobLogs) start(identity jobcontext.JobIdentity, scopeType jobcon
 	}
 }
 
+// jobStartRetrySeconds is how long the worker waits before resending a start
+// record whose send failed.
+const jobStartRetrySeconds = 2
+
 // immediateFlushSetting makes the worker send every record as it arrives.
 // The start record proves liveness only if it leaves the runner before the
 // job can kill the Agent, so a manager-served batching policy is ignored.
+// The interval only matters after a failed send: without it the record
+// would stay buffered until the job finalizes.
 func immediateFlushSetting() *managerv1beta1.OutputSetting {
-	return &managerv1beta1.OutputSetting{Enabled: true, FlushThresholdBytes: 1}
+	return &managerv1beta1.OutputSetting{Enabled: true, FlushThresholdBytes: 1, FlushIntervalSeconds: jobStartRetrySeconds}
 }
 
 func (o *ManagerJobLogs) ensureManagerSender() func(context.Context, managerclient.LogBatch) error {
@@ -251,10 +257,16 @@ func (o *ManagerJobLogs) DroppedLogRecords(logType managerv1beta1.LogType) uint6
 	}
 }
 
-// FlushStreamingLogs sends buffered detection and runtime event records now
-// while keeping the workers open for later records and the final close.
+// FlushStreamingLogs sends buffered detection, runtime event, and unsent job
+// start records now while keeping the workers open for later records and the
+// final close.
 func (o *ManagerJobLogs) FlushStreamingLogs(ctx context.Context) error {
 	var errs []error
+	if o.jobStart != nil {
+		if err := o.jobStart.Flush(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if o.detection != nil {
 		if err := o.detection.Flush(ctx); err != nil {
 			errs = append(errs, err)
@@ -271,7 +283,7 @@ func (o *ManagerJobLogs) FlushStreamingLogs(ctx context.Context) error {
 // FinalizeStreamingLogs closes detection, runtime event, and job start logs
 // in parallel so one slow drain cannot serialize in front of the others
 // during a deadline-bounded shutdown (#143). Closing the job start worker
-// also retries a start record whose first send failed.
+// also sends a start record that every earlier attempt failed to deliver.
 func (o *ManagerJobLogs) FinalizeStreamingLogs(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var detectionErr, runtimeEventErr, jobStartErr error
